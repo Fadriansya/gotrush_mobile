@@ -8,6 +8,7 @@ import '../../services/auth_service.dart';
 import '../profile_screen.dart';
 import '../../services/order_service.dart';
 import '../order_history_widget.dart';
+import '../../utils/alerts.dart';
 
 class UserHomeScreen extends StatefulWidget {
   const UserHomeScreen({super.key});
@@ -21,7 +22,9 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   StreamSubscription<QuerySnapshot>? _orderSub;
   String? _lastOrderId;
   String? _lastOrderStatus;
-  // final OrderService _orderService = OrderService();
+  bool _dialogOpen = false; // guard untuk mencegah dialog tumpuk
+  DateTime? _lastNotifyAt;
+  String? _lastNotifiedOrderId;
 
   final List<Widget> _pages = [
     const _BerandaPage(),
@@ -38,17 +41,19 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final auth = Provider.of<AuthService>(context, listen: false);
-      final uid = auth.currentUser?.uid;
-      if (uid != null) {
-        _orderSub = FirebaseFirestore.instance
-            .collection('orders')
-            .where('user_id', isEqualTo: uid)
-            .orderBy('created_at', descending: true)
-            .limit(1)
-            .snapshots()
-            .listen((snap) {
+    // Subscribe langsung di initState tanpa postFrameCallback. Menggunakan
+    // Provider.of(context, listen: false) aman di initState.
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final uid = auth.currentUser?.uid;
+    if (uid != null) {
+      _orderSub = FirebaseFirestore.instance
+          .collection('orders')
+          .where('user_id', isEqualTo: uid)
+          .orderBy('created_at', descending: true)
+          .limit(1)
+          .snapshots()
+          .listen(
+            (snap) {
               if (snap.docs.isEmpty) return;
               final doc = snap.docs.first;
               final id = doc.id;
@@ -63,9 +68,12 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                   Map<String, dynamic>.from(data),
                 );
               }
-            });
-      }
-    });
+            },
+            onError: (e) {
+              debugPrint('Order subscription error: $e');
+            },
+          );
+    }
   }
 
   @override
@@ -80,56 +88,62 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     Map<String, dynamic> data,
   ) {
     if (!mounted) return;
+
+    // Debounce: jangan tampilkan notifikasi/dialog lebih sering dari 3 detik
+    final now = DateTime.now();
+    if (_lastNotifyAt != null && _lastNotifiedOrderId == orderId) {
+      final diff = now.difference(_lastNotifyAt!);
+      if (diff < const Duration(seconds: 3)) {
+        // terlalu cepat, abaikan
+        return;
+      }
+    }
+    _lastNotifyAt = now;
+    _lastNotifiedOrderId = orderId;
+
+    // Jika sudah ada dialog terbuka, jangan buka dialog baru (mencegah freeze karena
+    // dialog menumpuk). Untuk snackbars tidak perlu guard karena mereka tidak
+    // mem-block UI seperti dialog.
     if (status == 'accepted') {
-      showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Driver Ditemukan'),
-          content: Text(
+      if (_dialogOpen) return;
+      _dialogOpen = true;
+      showAppDialog(
+        context,
+        title: 'Driver Ditemukan',
+        message:
             'Driver ${data['driver_id'] ?? ''} telah menerima pesanan Anda.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
+        type: AlertType.info,
+      ).then((_) {
+        if (mounted) setState(() => _dialogOpen = false);
+      });
     } else if (status == 'on_the_way') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Driver sedang menuju lokasi Anda')),
+      showAppSnackBar(
+        context,
+        'Driver sedang menuju lokasi Anda',
+        type: AlertType.info,
       );
     } else if (status == 'arrived') {
-      showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Driver Sampai'),
-          content: const Text(
-            'Driver telah sampai di lokasi. Silakan siapkan sampah.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
+      if (_dialogOpen) return;
+      _dialogOpen = true;
+      showAppDialog(
+        context,
+        title: 'Driver Sampai',
+        message: 'Driver telah sampai di lokasi. Silakan siapkan sampah.',
+        type: AlertType.info,
+      ).then((_) {
+        if (mounted) setState(() => _dialogOpen = false);
+      });
     } else if (status == 'completed') {
-      showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Selesai'),
-          content: const Text('Terima kasih! Sampah telah diambil.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
+      if (_dialogOpen) return;
+      _dialogOpen = true;
+      showAppDialog(
+        context,
+        title: 'Selesai',
+        message: 'Terima kasih! Sampah telah diambil.',
+        type: AlertType.success,
+      ).then((_) {
+        if (mounted) setState(() => _dialogOpen = false);
+      });
     }
   }
 
@@ -253,16 +267,20 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
 
                   final address = addressCtl.text.trim();
                   if (address.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Alamat harus diisi')),
+                    showAppSnackBar(
+                      context,
+                      'Alamat harus diisi',
+                      type: AlertType.error,
                     );
                     return;
                   }
                   final weight = double.tryParse(weightCtl.text) ?? 0.0;
                   final price = double.tryParse(priceCtl.text) ?? 0.0;
 
-                  // capture messenger and close dialog before awaiting to avoid using BuildContext
+                  // capture messenger & theme and close dialog before awaiting
+                  // to avoid using BuildContext across async gaps
                   final messenger = ScaffoldMessenger.of(context);
+                  final theme = Theme.of(context);
                   Navigator.of(ctx).pop();
                   try {
                     // for demo: use a dummy location
@@ -279,13 +297,21 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                     );
                     if (mounted) {
                       messenger.showSnackBar(
-                        SnackBar(content: Text('Order dibuat: $id')),
+                        buildAppSnackBarFromTheme(
+                          theme,
+                          'Order dibuat: $id',
+                          type: AlertType.success,
+                        ),
                       );
                     }
                   } catch (e) {
                     if (mounted) {
                       messenger.showSnackBar(
-                        SnackBar(content: Text('Gagal membuat order: $e')),
+                        buildAppSnackBarFromTheme(
+                          theme,
+                          'Gagal membuat order: $e',
+                          type: AlertType.error,
+                        ),
                       );
                     }
                   }
@@ -365,8 +391,10 @@ class _BerandaPage extends StatelessWidget {
                     color1: item['color1'] as Color,
                     color2: item['color2'] as Color,
                     onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text("Navigasi ke ${item['title']}")),
+                      showAppSnackBar(
+                        context,
+                        'Navigasi ke ${item['title']}',
+                        type: AlertType.info,
                       );
                     },
                   ),
@@ -481,11 +509,6 @@ class _MenuCard extends StatelessWidget {
                     ),
                   ],
                 ),
-              ),
-              const Icon(
-                Icons.arrow_forward_ios,
-                color: Colors.black45,
-                size: 18,
               ),
             ],
           ),

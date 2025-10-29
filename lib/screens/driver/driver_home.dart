@@ -6,6 +6,7 @@ import 'dart:async';
 
 import '../../services/order_service.dart';
 import '../../services/auth_service.dart';
+import '../../utils/alerts.dart';
 import '../profile_screen.dart';
 import '../order_history_widget.dart';
 
@@ -205,28 +206,24 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                       .acceptOrder(orderId, driverId);
                                   if (!mounted) return;
                                   if (accepted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'Pesanan berhasil diterima',
-                                        ),
-                                      ),
+                                    showAppSnackBar(
+                                      context,
+                                      'Pesanan berhasil diterima',
+                                      type: AlertType.success,
                                     );
                                   } else {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'Gagal menerima: pesanan sudah diambil driver lain',
-                                        ),
-                                      ),
+                                    showAppSnackBar(
+                                      context,
+                                      'Gagal menerima: pesanan sudah diambil driver lain',
+                                      type: AlertType.error,
                                     );
                                   }
                                 } catch (e) {
                                   if (!context.mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('Gagal terima pesanan: $e'),
-                                    ),
+                                  showAppSnackBar(
+                                    context,
+                                    'Gagal terima pesanan: $e',
+                                    type: AlertType.error,
                                   );
                                 } finally {
                                   if (context.mounted) {
@@ -252,7 +249,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                       ),
                                     );
                                   }
-                                  return const Text('Terima');
+                                  return const Text(
+                                    'Terima',
+                                    style: TextStyle(color: Colors.white),
+                                  );
                                 },
                               ),
                             ),

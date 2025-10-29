@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/auth_service.dart';
+import '../utils/alerts.dart';
 
 class ProfileScreen extends StatefulWidget {
   final String role; // 'user' or 'driver'
@@ -141,8 +142,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               final newName = nameCtl.text.trim();
               final newPhone = phoneCtl.text.trim();
               if (newName.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Nama tidak boleh kosong')),
+                showAppSnackBar(
+                  context,
+                  'Nama tidak boleh kosong',
+                  type: AlertType.error,
                 );
                 return;
               }
@@ -154,14 +157,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 if (!context.mounted) return;
                 // use parent context to pop the dialog safely
                 Navigator.of(context).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Profil diperbarui')),
+                showAppSnackBar(
+                  context,
+                  'Profil diperbarui',
+                  type: AlertType.success,
                 );
               } catch (e) {
                 if (!context.mounted) return;
-                ScaffoldMessenger.of(
+                showAppSnackBar(
                   context,
-                ).showSnackBar(SnackBar(content: Text('Gagal menyimpan: $e')));
+                  'Gagal menyimpan: $e',
+                  type: AlertType.error,
+                );
               }
             },
             child: const Text('Simpan'),

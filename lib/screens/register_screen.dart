@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
+import '../utils/alerts.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -54,8 +55,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Registrasi berhasil! Silakan login.')),
+      showAppSnackBar(
+        context,
+        'Registrasi berhasil! Silakan login.',
+        type: AlertType.success,
       );
 
       Navigator.pushReplacementNamed(context, '/login');
@@ -84,9 +87,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(
+        showAppSnackBar(
           context,
-        ).showSnackBar(SnackBar(content: Text('Gagal registrasi: $message')));
+          'Gagal registrasi: $message',
+          type: AlertType.error,
+        );
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);

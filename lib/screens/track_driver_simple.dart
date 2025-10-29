@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/notification_service.dart';
+import '../utils/alerts.dart';
 
 class TrackDriverSimple extends StatefulWidget {
   final String driverId;
@@ -97,8 +98,10 @@ class _TrackDriverSimpleState extends State<TrackDriverSimple> {
               onPressed: () async {
                 // reset notification flag for testing
                 setState(() => _notified = false);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Reset notifikasi')),
+                showAppSnackBar(
+                  context,
+                  'Reset notifikasi',
+                  type: AlertType.info,
                 );
               },
               child: const Text('Reset notifikasi'),
