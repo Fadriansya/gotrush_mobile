@@ -33,6 +33,7 @@ dependencies:
   firebase_core: ^3.1.1
   firebase_auth: ^5.1.1
   cloud_firestore: ^5.1.1
+  firebase_storage: ^12.4.10
   shared_preferences: ^2.2.3
   # Maps & Geo
   google_maps_flutter: ^2.13.1
@@ -77,7 +78,7 @@ flutter:
   # To add assets to your application, add an assets section, like this:
   assets:
     - assets/images/welcome.png
-    - assets/profile_placeholder.png
+    - assets/images/profile.png
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see
