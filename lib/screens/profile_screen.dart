@@ -117,14 +117,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             final status = (data['status'] as String?) ?? '';
             final photoUrl = (data['photoUrl'] as String?) ?? '';
 
-            String initials(String s) {
-              final parts = s.trim().split(RegExp(r'\s+'));
-              if (parts.isEmpty) return '';
-              if (parts.length == 1)
-                return parts.first.substring(0, 1).toUpperCase();
-              return (parts[0][0] + parts[1][0]).toUpperCase();
-            }
-
             return SafeArea(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(
@@ -138,7 +130,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(18),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.08),
+                        color: Colors.white.withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: Colors.white24),
                       ),
@@ -424,13 +416,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () => Navigator.of(ctx).pop(),
-                      child: const Text('Batal'),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
+                      child: const Text('Batal'),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -468,13 +460,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           );
                         }
                       },
-                      child: const Text('Simpan'),
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
+                      child: const Text('Simpan'),
                     ),
                   ),
                 ],
@@ -552,6 +544,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'photoUrl': downloadUrl,
       });
 
+      if (!mounted) return;
+
       if (!context.mounted) return;
       showAppSnackBar(
         context,
@@ -600,16 +594,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ],
       ),
-    ).then((confirmed) {
-      if (confirmed == true) _removePhoto(context, uid, currentPhotoUrl);
+    ).then((confirmed) async {
+      if (confirmed == true) {
+        if (!mounted) return;
+        await _removePhoto(uid, currentPhotoUrl);
+      }
     });
   }
 
-  Future<void> _removePhoto(
-    BuildContext context,
-    String uid,
-    String currentPhotoUrl,
-  ) async {
+  Future<void> _removePhoto(String uid, String currentPhotoUrl) async {
     try {
       setState(() => _loadingImage = true);
       // Try deleting the file in storage if it exists under user_photos/$uid.jpg
@@ -626,7 +619,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await FirebaseFirestore.instance.collection('users').doc(uid).update({
         'photoUrl': '',
       });
-      if (!context.mounted) return;
+      if (!mounted) return;
       showAppSnackBar(context, 'Foto profil dihapus', type: AlertType.success);
     } catch (e) {
       if (!context.mounted) return;

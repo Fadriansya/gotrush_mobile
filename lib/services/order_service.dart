@@ -123,11 +123,11 @@ class OrderService {
       final driverId = data['driver_id'] as String?;
       if (userId != null) {
         final u = await _firestore.collection('users').doc(userId).get();
-        history['user_name'] = (u.data()?['name'] as String?) ?? null;
+        history['user_name'] = (u.data()?['name'] as String?) ?? '';
       }
       if (driverId != null) {
         final d = await _firestore.collection('users').doc(driverId).get();
-        history['driver_name'] = (d.data()?['name'] as String?) ?? null;
+        history['driver_name'] = (d.data()?['name'] as String?) ?? '';
       }
     } catch (e) {
       debugPrint('🔥 failed to fetch user/driver name for history: $e');

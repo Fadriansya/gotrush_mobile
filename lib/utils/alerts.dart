@@ -219,8 +219,9 @@ Future<void> showAppDialog(
                         alignment: Alignment.centerRight,
                         child: TextButton(
                           onPressed: () {
-                            if (Navigator.of(innerCtx).canPop())
+                            if (Navigator.of(innerCtx).canPop()) {
                               Navigator.of(innerCtx).pop();
+                            }
                           },
                           child: const Text('OK'),
                         ),
