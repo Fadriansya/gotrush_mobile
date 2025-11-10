@@ -273,6 +273,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final String driverName = "Driver";
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final currentUserId = auth.currentUser?.uid ?? '';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF2F8F3),
@@ -377,9 +379,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                       MaterialPageRoute(
                         builder: (_) => Scaffold(
                           appBar: AppBar(title: const Text('Riwayat')),
-                          body: const Padding(
-                            padding: EdgeInsets.all(8.0),
-                            child: OrderHistoryWidget(role: 'driver'),
+                          body: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: OrderHistoryWidget(
+                              currentUserId: currentUserId,
+                            ),
                           ),
                         ),
                       ),

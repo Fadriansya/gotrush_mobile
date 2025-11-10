@@ -6,6 +6,17 @@ class OrderService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final uuid = Uuid();
 
+  Stream<QuerySnapshot> listenNearbyOrdersForDriver(
+    String driverId,
+    double radius,
+    GeoPoint driverLocation,
+  ) {
+    return FirebaseFirestore.instance
+        .collection('orders')
+        .where('status', isEqualTo: 'waiting')
+        .snapshots();
+  }
+
   Future<String> createOrder({
     required String userId,
     required double weight,
@@ -16,7 +27,9 @@ class OrderService {
     required List<String> photoUrls,
   }) async {
     final id = uuid.v4();
-    await _firestore.collection('orders').doc(id).set({
+    final now = FieldValue.serverTimestamp();
+
+    final data = {
       'user_id': userId,
       'driver_id': null,
       'status': 'waiting',
@@ -26,26 +39,26 @@ class OrderService {
       'address': address,
       'location': location,
       'photo_urls': photoUrls,
-      'created_at': FieldValue.serverTimestamp(),
-    });
+      'created_at': now,
+    };
+
+    // Simpan ke koleksi utama
+    await _firestore.collection('orders').doc(id).set(data);
+
+    // Langsung arsipkan ke order_history juga agar muncul di Riwayat
+    try {
+      await _firestore.collection('order_history').doc(id).set({
+        ...data,
+        'archived_at': now,
+        'completed_at': null,
+      });
+    } catch (e) {
+      debugPrint('⚠️ gagal menyalin order ke order_history: $e');
+    }
+
     return id;
   }
 
-  Stream<QuerySnapshot> listenNearbyOrdersForDriver(
-    String driverUid,
-    double radiusKm,
-    GeoPoint driverLocation,
-  ) {
-    // For simplicity: listen all waiting orders
-    // For production: use geoflutterfire to query by distance
-    return _firestore
-        .collection('orders')
-        .where('status', isEqualTo: 'waiting')
-        .snapshots();
-  }
-
-  /// Try to accept an order safely using a transaction.
-  /// Returns true if accepted successfully, false if the order was not in 'waiting' state.
   Future<bool> acceptOrder(String orderId, String driverId) async {
     final ref = _firestore.collection('orders').doc(orderId);
     try {
@@ -53,10 +66,7 @@ class OrderService {
         final snapshot = await tx.get(ref);
         if (!snapshot.exists) return false;
         final currentStatus = (snapshot.data()?['status'] as String?) ?? '';
-        if (currentStatus != 'waiting') {
-          // somebody else already accepted or changed the order
-          return false;
-        }
+        if (currentStatus != 'waiting') return false;
         tx.update(ref, {
           'driver_id': driverId,
           'status': 'accepted',
@@ -64,6 +74,16 @@ class OrderService {
         });
         return true;
       });
+
+      // update ke order_history juga
+      if (result) {
+        await _firestore.collection('order_history').doc(orderId).update({
+          'driver_id': driverId,
+          'status': 'accepted',
+          'accepted_at': FieldValue.serverTimestamp(),
+        });
+      }
+
       return result;
     } catch (e) {
       debugPrint('🔥 acceptOrder transaction error: $e');
@@ -78,7 +98,13 @@ class OrderService {
     }
     await _firestore.collection('orders').doc(orderId).update(update);
 
-    // If the order is completed, archive it into order_history
+    // sinkronkan dengan order_history
+    try {
+      await _firestore.collection('order_history').doc(orderId).update(update);
+    } catch (e) {
+      debugPrint('⚠️ gagal update status di order_history: $e');
+    }
+
     if (newStatus == 'completed') {
       try {
         await _archiveOrder(orderId);
@@ -95,7 +121,17 @@ class OrderService {
       'status': 'completed',
       'completed_at': FieldValue.serverTimestamp(),
     });
-    // After completing, archive the order to history
+
+    try {
+      await _firestore.collection('order_history').doc(orderId).update({
+        'photo_urls': FieldValue.arrayUnion([photoUrl]),
+        'status': 'completed',
+        'completed_at': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      debugPrint('⚠️ gagal sinkron foto ke order_history: $e');
+    }
+
     try {
       await _archiveOrder(orderId);
     } catch (e) {
@@ -109,15 +145,11 @@ class OrderService {
     if (!snap.exists) return;
     final data = snap.data() as Map<String, dynamic>;
 
-    // Prepare history document payload. Include timestamps and all useful fields.
-
     final history = Map<String, dynamic>.from(data);
     history['archived_at'] = FieldValue.serverTimestamp();
-    // Ensure history has a completed_at field so queries ordering by completed_at work
     history['completed_at'] =
         data['completed_at'] ?? FieldValue.serverTimestamp();
 
-    // Try to include readable names to avoid extra reads on the client.
     try {
       final userId = data['user_id'] as String?;
       final driverId = data['driver_id'] as String?;
@@ -131,13 +163,14 @@ class OrderService {
       }
     } catch (e) {
       debugPrint('🔥 failed to fetch user/driver name for history: $e');
-      // continue without names
     }
 
-    // write to order_history collection using same id
-    await _firestore.collection('order_history').doc(orderId).set(history);
+    // update atau tulis ulang (upsert)
+    await _firestore
+        .collection('order_history')
+        .doc(orderId)
+        .set(history, SetOptions(merge: true));
 
-    // mark original order as archived to avoid duplication
     await ref.update({'archived': true});
   }
 }

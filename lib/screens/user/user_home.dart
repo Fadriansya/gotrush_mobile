@@ -3,10 +3,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 import 'package:provider/provider.dart';
-
 import '../../services/auth_service.dart';
 import '../profile_screen.dart';
-import '../../services/order_service.dart';
 import '../order_history_widget.dart';
 import '../../utils/alerts.dart';
 
@@ -212,6 +210,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
 
   void _showCreateOrderDialog(BuildContext context) {
     final addressCtl = TextEditingController();
+    final distanceCtl = TextEditingController();
     final weightCtl = TextEditingController();
     final priceCtl = TextEditingController();
 
@@ -219,6 +218,13 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx2, setStateDialog) {
+          void _updatePrice() {
+            final distance = double.tryParse(distanceCtl.text) ?? 0;
+            final weight = double.tryParse(weightCtl.text) ?? 0;
+            final price = distance * weight * 5000; // logika harga otomatis
+            priceCtl.text = price.toStringAsFixed(0);
+          }
+
           return AlertDialog(
             title: Row(
               children: const [
@@ -240,83 +246,60 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                     decoration: const InputDecoration(labelText: 'Alamat'),
                   ),
                   TextField(
+                    controller: distanceCtl,
+                    decoration: const InputDecoration(labelText: 'Jarak (km)'),
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => _updatePrice(),
+                  ),
+                  TextField(
                     controller: weightCtl,
                     decoration: const InputDecoration(labelText: 'Berat (kg)'),
                     keyboardType: TextInputType.number,
+                    onChanged: (_) => _updatePrice(),
                   ),
                   TextField(
                     controller: priceCtl,
-                    decoration: const InputDecoration(labelText: 'Harga (IDR)'),
+                    decoration: const InputDecoration(
+                      labelText: 'Harga (yang harus anda bayar)',
+                    ),
                     keyboardType: TextInputType.number,
+                    readOnly: true,
                   ),
                 ],
               ),
             ),
             actions: [
               TextButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                },
+                onPressed: () => Navigator.of(ctx).pop(),
                 child: const Text('Batal'),
               ),
               ElevatedButton(
                 onPressed: () async {
-                  final auth = Provider.of<AuthService>(context, listen: false);
-                  final uid = auth.currentUser?.uid;
-                  if (uid == null) return;
-
                   final address = addressCtl.text.trim();
+                  final distance = double.tryParse(distanceCtl.text) ?? 0;
+                  final weight = double.tryParse(weightCtl.text) ?? 0;
+                  final price = double.tryParse(priceCtl.text) ?? 0;
+
                   if (address.isEmpty) {
-                    showAppSnackBar(
-                      context,
-                      'Alamat harus diisi',
-                      type: AlertType.error,
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Alamat harus diisi'),
+                        backgroundColor: Colors.red,
+                      ),
                     );
                     return;
                   }
-                  final weight = double.tryParse(weightCtl.text) ?? 0.0;
-                  final price = double.tryParse(priceCtl.text) ?? 0.0;
 
-                  // capture messenger & theme and close dialog before awaiting
-                  // to avoid using BuildContext across async gaps
-                  final messenger = ScaffoldMessenger.of(context);
-                  final theme = Theme.of(context);
-                  Navigator.of(ctx).pop();
-                  try {
-                    // for demo: use a dummy location
-                    final location = GeoPoint(0, 0);
-                    final orderSvc = OrderService();
-                    final id = await orderSvc.createOrder(
-                      userId: uid,
-                      weight: weight,
-                      distance: 0.0,
-                      price: price,
-                      address: address,
-                      location: location,
-                      photoUrls: [],
-                    );
-                    if (mounted) {
-                      messenger.showSnackBar(
-                        buildAppSnackBarFromTheme(
-                          theme,
-                          'Order dibuat: $id',
-                          type: AlertType.success,
-                        ),
-                      );
-                    }
-                  } catch (e) {
-                    if (mounted) {
-                      messenger.showSnackBar(
-                        buildAppSnackBarFromTheme(
-                          theme,
-                          'Gagal membuat order: $e',
-                          type: AlertType.error,
-                        ),
-                      );
-                    }
-                  }
+                  Navigator.of(ctx).pop(); // tutup dialog
+                  await _saveOrderToFirestore(
+                    context: context,
+                    address: address,
+                    distance: distance,
+                    weight: weight,
+                    price: price,
+                  );
                 },
-                child: const Text('Buat'),
+                child: const Text('Simpan'),
               ),
             ],
           );
@@ -324,11 +307,59 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       ),
     );
   }
+
+  Future<void> _saveOrderToFirestore({
+    required BuildContext context,
+    required String address,
+    required double distance,
+    required double weight,
+    required double price,
+  }) async {
+    try {
+      final auth = Provider.of<AuthService>(context, listen: false);
+      final uid = auth.currentUser?.uid;
+      if (uid == null) throw Exception('User belum login');
+
+      final order = {
+        'user_id': uid,
+        'driver_id': null,
+        'status': 'waiting',
+        'weight': weight,
+        'distance': distance,
+        'price': price,
+        'address': address,
+        'location': const GeoPoint(
+          0,
+          0,
+        ), // bisa diubah ke lokasi sebenarnya nanti
+        'photo_urls': [],
+        'created_at': Timestamp.now(),
+      };
+
+      await FirebaseFirestore.instance.collection('order_history').add(order);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Pesanan berhasil disimpan ke riwayat!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal menyimpan pesanan: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
 }
 
-//
 // ─── BERANDA ──────────────────────────────────────────────────────
-//
 class _BerandaPage extends StatelessWidget {
   const _BerandaPage();
 
@@ -416,9 +447,11 @@ class _RiwayatPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.all(8.0),
-      child: OrderHistoryWidget(),
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final currentUserId = auth.currentUser?.uid ?? '';
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: OrderHistoryWidget(currentUserId: currentUserId),
     );
   }
 }

@@ -45,6 +45,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
         elevation: 0,
         backgroundColor: Colors.transparent,
+        iconTheme: const IconThemeData(color: Colors.white),
         centerTitle: true,
         actions: [
           IconButton(
@@ -124,6 +125,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   vertical: 24,
                 ),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     // top card
                     Container(
@@ -564,11 +566,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  void _confirmRemovePhoto(
+  Future<void> _confirmRemovePhoto(
     BuildContext context,
     String uid,
     String currentPhotoUrl,
-  ) {
+  ) async {
     if (currentPhotoUrl.isEmpty) {
       showAppSnackBar(
         context,
@@ -578,7 +580,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
 
-    showDialog<bool>(
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Hapus Foto'),
@@ -594,12 +596,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ],
       ),
-    ).then((confirmed) async {
-      if (confirmed == true) {
-        if (!mounted) return;
-        await _removePhoto(uid, currentPhotoUrl);
-      }
-    });
+    );
+
+    if (confirmed == true) {
+      if (!context.mounted) return;
+      await _removePhoto(uid, currentPhotoUrl);
+    }
   }
 
   Future<void> _removePhoto(String uid, String currentPhotoUrl) async {
