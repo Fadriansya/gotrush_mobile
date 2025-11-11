@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:sampah_online/welcome_screen.dart';
 import 'dart:async';
 
 import '../../services/order_service.dart';
@@ -279,7 +280,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF2F8F3),
       appBar: AppBar(
-        backgroundColor: Colors.green[700],
+        backgroundColor: Colors.green[800],
         elevation: 0,
         title: const Text(
           "Dashboard Driver",
@@ -378,11 +379,22 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => Scaffold(
-                          appBar: AppBar(title: const Text('Riwayat')),
+                          appBar: AppBar(
+                            backgroundColor: Colors.green[800],
+                            title: Text(
+                              'Riwayat',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 30,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
                           body: Padding(
                             padding: const EdgeInsets.all(8.0),
                             child: OrderHistoryWidget(
                               currentUserId: currentUserId,
+                              role: 'driver',
                             ),
                           ),
                         ),
@@ -570,7 +582,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             Center(
               child: TextButton.icon(
                 onPressed: () {
-                  // TODO: Logout logic
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+                  );
                 },
                 icon: const Icon(Icons.logout, color: Colors.red),
                 label: const Text(

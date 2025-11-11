@@ -336,7 +336,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         'created_at': Timestamp.now(),
       };
 
-      await FirebaseFirestore.instance.collection('order_history').add(order);
+      await FirebaseFirestore.instance.collection('orders').add(order);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -451,7 +451,7 @@ class _RiwayatPage extends StatelessWidget {
     final currentUserId = auth.currentUser?.uid ?? '';
     return Padding(
       padding: const EdgeInsets.all(8.0),
-      child: OrderHistoryWidget(currentUserId: currentUserId),
+      child: OrderHistoryWidget(currentUserId: currentUserId, role: 'user'),
     );
   }
 }

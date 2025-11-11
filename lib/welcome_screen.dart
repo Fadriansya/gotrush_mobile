@@ -14,7 +14,10 @@ class WelcomeScreen extends StatelessWidget {
         height: double.infinity,
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFFB2E4C6), Color(0xFFE8F5E9)],
+            colors: [
+              Color.fromARGB(255, 93, 181, 96),
+              Color.fromARGB(255, 234, 234, 234),
+            ],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -43,9 +46,9 @@ class WelcomeScreen extends StatelessWidget {
                   Text(
                     'Selamat Datang di GotRush!',
                     style: GoogleFonts.poppins(
-                      fontSize: 26,
+                      fontSize: 31,
                       fontWeight: FontWeight.bold,
-                      color: Colors.green[800],
+                      color: Color.fromARGB(222, 0, 0, 0),
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -56,8 +59,8 @@ class WelcomeScreen extends StatelessWidget {
                   Text(
                     'Jadwalkan penjemputan sampahmu secara mudah, cepat, dan ramah lingkungan 🌱',
                     style: GoogleFonts.poppins(
-                      fontSize: 15,
-                      color: Colors.grey[700],
+                      fontSize: 20,
+                      color: const Color.fromARGB(255, 0, 0, 0),
                       height: 1.5,
                     ),
                     textAlign: TextAlign.center,

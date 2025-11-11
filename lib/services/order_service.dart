@@ -11,7 +11,7 @@ class OrderService {
     double radius,
     GeoPoint driverLocation,
   ) {
-    return FirebaseFirestore.instance
+    return _firestore
         .collection('orders')
         .where('status', isEqualTo: 'waiting')
         .snapshots();
@@ -45,13 +45,13 @@ class OrderService {
     // Simpan ke koleksi utama
     await _firestore.collection('orders').doc(id).set(data);
 
-    // Langsung arsipkan ke order_history juga agar muncul di Riwayat
+    // Simpan juga ke order_history agar langsung muncul di riwayat user
     try {
       await _firestore.collection('order_history').doc(id).set({
         ...data,
         'archived_at': now,
         'completed_at': null,
-      });
+      }, SetOptions(merge: true));
     } catch (e) {
       debugPrint('⚠️ gagal menyalin order ke order_history: $e');
     }
@@ -61,6 +61,7 @@ class OrderService {
 
   Future<bool> acceptOrder(String orderId, String driverId) async {
     final ref = _firestore.collection('orders').doc(orderId);
+
     try {
       final result = await _firestore.runTransaction<bool>((tx) async {
         final snapshot = await tx.get(ref);
@@ -75,13 +76,13 @@ class OrderService {
         return true;
       });
 
-      // update ke order_history juga
       if (result) {
-        await _firestore.collection('order_history').doc(orderId).update({
+        // Gunakan set(merge:true) agar tidak overwrite data user_id
+        await _firestore.collection('order_history').doc(orderId).set({
           'driver_id': driverId,
           'status': 'accepted',
           'accepted_at': FieldValue.serverTimestamp(),
-        });
+        }, SetOptions(merge: true));
       }
 
       return result;
@@ -96,11 +97,14 @@ class OrderService {
     if (newStatus == 'completed') {
       update['completed_at'] = FieldValue.serverTimestamp();
     }
+
     await _firestore.collection('orders').doc(orderId).update(update);
 
-    // sinkronkan dengan order_history
     try {
-      await _firestore.collection('order_history').doc(orderId).update(update);
+      await _firestore
+          .collection('order_history')
+          .doc(orderId)
+          .set(update, SetOptions(merge: true));
     } catch (e) {
       debugPrint('⚠️ gagal update status di order_history: $e');
     }
@@ -123,11 +127,11 @@ class OrderService {
     });
 
     try {
-      await _firestore.collection('order_history').doc(orderId).update({
+      await _firestore.collection('order_history').doc(orderId).set({
         'photo_urls': FieldValue.arrayUnion([photoUrl]),
         'status': 'completed',
         'completed_at': FieldValue.serverTimestamp(),
-      });
+      }, SetOptions(merge: true));
     } catch (e) {
       debugPrint('⚠️ gagal sinkron foto ke order_history: $e');
     }
@@ -143,9 +147,10 @@ class OrderService {
     final ref = _firestore.collection('orders').doc(orderId);
     final snap = await ref.get();
     if (!snap.exists) return;
-    final data = snap.data() as Map<String, dynamic>;
 
+    final data = Map<String, dynamic>.from(snap.data() ?? {});
     final history = Map<String, dynamic>.from(data);
+
     history['archived_at'] = FieldValue.serverTimestamp();
     history['completed_at'] =
         data['completed_at'] ?? FieldValue.serverTimestamp();
@@ -165,7 +170,7 @@ class OrderService {
       debugPrint('🔥 failed to fetch user/driver name for history: $e');
     }
 
-    // update atau tulis ulang (upsert)
+    // Aman: merge true agar field penting tidak hilang
     await _firestore
         .collection('order_history')
         .doc(orderId)

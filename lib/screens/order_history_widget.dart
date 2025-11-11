@@ -4,8 +4,12 @@ import 'package:intl/intl.dart';
 
 class OrderHistoryWidget extends StatelessWidget {
   final String currentUserId;
-  const OrderHistoryWidget({Key? key, required this.currentUserId})
-    : super(key: key);
+  final String role;
+  const OrderHistoryWidget({
+    Key? key,
+    required this.currentUserId,
+    required this.role,
+  }) : super(key: key);
 
   // ======== Fungsi bantu warna & ikon status ========
   Color _getStatusColor(String status) {
@@ -112,7 +116,10 @@ class OrderHistoryWidget extends StatelessWidget {
         final batch = FirebaseFirestore.instance.batch();
         final query = await FirebaseFirestore.instance
             .collection('order_history')
-            .where('user_id', isEqualTo: currentUserId)
+            .where(
+              role == 'user' ? 'user_id' : 'driver_id',
+              isEqualTo: currentUserId,
+            )
             .get();
 
         for (var doc in query.docs) {
@@ -137,7 +144,10 @@ class OrderHistoryWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final ordersStream = FirebaseFirestore.instance
         .collection('order_history')
-        .where('user_id', isEqualTo: currentUserId)
+        .where(
+          role == 'user' ? 'user_id' : 'driver_id',
+          isEqualTo: currentUserId,
+        )
         .orderBy('created_at', descending: true)
         .snapshots();
 
