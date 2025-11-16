@@ -4,12 +4,13 @@ import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:sampah_online/welcome_screen.dart';
 import 'dart:async';
-
+import 'package:geolocator/geolocator.dart';
 import '../../services/order_service.dart';
 import '../../services/auth_service.dart';
 import '../../utils/alerts.dart';
 import '../profile_screen.dart';
 import '../order_history_widget.dart';
+import '/screens/driver_map_tracking_screen.dart';
 
 class DriverHomeScreen extends StatefulWidget {
   const DriverHomeScreen({super.key});
@@ -20,35 +21,147 @@ class DriverHomeScreen extends StatefulWidget {
 
 class _DriverHomeScreenState extends State<DriverHomeScreen> {
   final OrderService _orderService = OrderService();
-  StreamSubscription<QuerySnapshot>? _sub;
+  StreamSubscription<QuerySnapshot>? _orderSub;
+  Timer? _locationUpdateTimer;
   bool _showingDialog = false;
+  Map<String, dynamic>? _activeOrderData;
+  String? _activeOrderId;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final auth = Provider.of<AuthService>(context, listen: false);
-      final driverUid = auth.currentUser?.uid;
-      _sub = _orderService
-          .listenNearbyOrdersForDriver(driverUid ?? '', 10, GeoPoint(0, 0))
-          .listen((snapshot) {
-            for (var doc in snapshot.docs) {
-              final data = doc.data() as Map<String, dynamic>;
-              final status = data['status'] as String? ?? '';
-              if (status == 'waiting' && !_showingDialog) {
-                _showingDialog = true;
-                _promptAcceptOrder(doc.id, data);
-                break;
-              }
-            }
-          });
+      _startListeningAndTracking();
     });
   }
 
   @override
   void dispose() {
-    _sub?.cancel();
+    _orderSub?.cancel();
+    _locationUpdateTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _startListeningAndTracking() async {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final driverUid = auth.currentUser?.uid;
+    if (driverUid == null) return;
+
+    GeoPoint driverStartLocation = const GeoPoint(-6.1900, 106.7969);
+    // Hentikan listener sebelumnya
+    _orderSub?.cancel();
+
+    _orderSub = FirebaseFirestore.instance
+        .collection('orders')
+        .where('status', isEqualTo: 'waiting')
+        .snapshots()
+        .listen((snapshot) {
+          if (snapshot.docs.isEmpty) return;
+
+          for (var doc in snapshot.docs) {
+            final data = doc.data() as Map<String, dynamic>;
+            final orderId = doc.id;
+
+            // Jika ada order aktif → jangan munculkan popup
+            if (_activeOrderId != null) continue;
+
+            if (!_showingDialog) {
+              _showingDialog = true;
+
+              Future.microtask(() {
+                _promptAcceptOrder(orderId, data);
+              });
+
+              break;
+            }
+          }
+        });
+    FirebaseFirestore.instance
+        .collection('orders')
+        .where('driver_id', isEqualTo: driverUid)
+        .where('status', whereIn: ['accepted', 'on_the_way'])
+        .snapshots()
+        .listen((activeSnapshot) {
+          if (activeSnapshot.docs.isNotEmpty) {
+            final doc = activeSnapshot.docs.first;
+
+            if (mounted) {
+              setState(() {
+                _activeOrderId = doc.id;
+                _activeOrderData = doc.data();
+              });
+            }
+          } else if (_activeOrderId != null) {
+            if (mounted) {
+              setState(() {
+                _activeOrderId = null;
+                _activeOrderData = null;
+              });
+            }
+          }
+        });
+
+    _locationUpdateTimer?.cancel();
+    _locationUpdateTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+      final status = _activeOrderData?['status'];
+
+      if (status == 'accepted' || status == 'on_the_way') {
+        _updateDriverLocation(driverUid);
+      }
+    });
+  }
+
+  Future<void> _onDepartPressed() async {
+    if (_activeOrderId == null || _activeOrderData == null) return;
+    final GeoPoint defaultLocation = const GeoPoint(-6.1900, 106.7969);
+    final GeoPoint pickupLocation =
+        _activeOrderData!['pickup_location'] as GeoPoint? ?? defaultLocation;
+    try {
+      await _orderService.updateStatus(_activeOrderId!, 'on_the_way');
+      if (!mounted) return;
+      Navigator.of(context)
+          .push(
+            MaterialPageRoute(
+              builder: (context) => DriverMapTrackingScreen(
+                orderId: _activeOrderId!,
+                userLocation: pickupLocation, // Kirim lokasi tujuan
+              ),
+            ),
+          )
+          .then((_) {
+            // Opsional: Lakukan sesuatu saat kembali dari halaman map
+          });
+    } catch (e) {
+      if (!context.mounted) return;
+      showAppSnackBar(
+        context,
+        'Gagal memulai perjalanan: $e',
+        type: AlertType.error,
+      );
+    }
+  }
+
+  Future<void> _updateDriverLocation(String driverUid) async {
+    try {
+      // Dapatkan lokasi driver saat ini
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      final driverLocation = {
+        'location': GeoPoint(position.latitude, position.longitude),
+        'timestamp': Timestamp.now(),
+        // Anda juga bisa menambahkan bearing/kecepatan jika diperlukan
+      };
+
+      await FirebaseFirestore.instance
+          .collection('drivers_location')
+          .doc(driverUid)
+          .set(driverLocation, SetOptions(merge: true));
+    } catch (e) {
+      // Handle error jika driver menolak izin lokasi atau gagal
+      print('Gagal update lokasi driver: $e');
+    }
   }
 
   Future<void> _promptAcceptOrder(
@@ -58,9 +171,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     if (!context.mounted) return;
     final auth = Provider.of<AuthService>(context, listen: false);
     final driverId = auth.currentUser?.uid ?? '';
-    // do not capture BuildContext-derived objects before async gaps; obtain messenger after async work
-
-    // show a modal bottom sheet with a small entrance animation for the icon
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -107,7 +217,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                             child: Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                // avoid deprecated withOpacity by using withAlpha
                                 color: Colors.green.withAlpha(
                                   (0.12 * 255).round(),
                                 ),
@@ -165,7 +274,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                               ),
                             ],
                           ),
-                          // small badge for estimated time or priority (if available)
                           if (data['eta'] != null)
                             Chip(label: Text('${data['eta']}')),
                         ],
@@ -176,10 +284,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                           Expanded(
                             child: OutlinedButton(
                               onPressed: () {
-                                // close sheet then update parent state if still mounted
                                 Navigator.of(ctx2).pop();
-                                if (!mounted) return;
-                                setState(() => _showingDialog = false);
+                                if (mounted) {
+                                  setState(() => _showingDialog = false);
+                                }
                               },
                               child: const Text('Tolak'),
                             ),
@@ -196,17 +304,26 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                               ),
-                              // ignore: use_build_context_synchronously
                               onPressed: () async {
                                 if (processing) return;
                                 setStateDialog(() => processing = true);
-                                // close sheet then perform async work
-                                Navigator.of(ctx2).pop();
                                 try {
                                   final accepted = await _orderService
                                       .acceptOrder(orderId, driverId);
                                   if (!mounted) return;
                                   if (accepted) {
+                                    WidgetsBinding.instance
+                                        .addPostFrameCallback((_) {
+                                          if (!mounted) return;
+                                          setState(() {
+                                            _activeOrderId = orderId;
+                                            _activeOrderData = data;
+                                            _activeOrderData!['status'] =
+                                                'accepted';
+                                          });
+                                        });
+                                    await _updateDriverLocation(driverId);
+                                    if (!mounted) return;
                                     showAppSnackBar(
                                       context,
                                       'Pesanan berhasil diterima',
@@ -227,15 +344,19 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                     type: AlertType.error,
                                   );
                                 } finally {
-                                  if (context.mounted) {
-                                    setState(() => _showingDialog = false);
-                                  }
-                                  // try to update dialog local state if still available
+                                  WidgetsBinding.instance.addPostFrameCallback((
+                                    _,
+                                  ) {
+                                    if (mounted) {
+                                      setState(() => _showingDialog = false);
+                                    }
+                                    if (ctx2.mounted) {
+                                      Navigator.of(ctx2).pop();
+                                    }
+                                  });
                                   try {
                                     setStateDialog(() => processing = false);
-                                  } catch (_) {
-                                    // sheet already closed; nothing to do
-                                  }
+                                  } catch (_) {}
                                 }
                               },
                               child: Builder(
@@ -430,8 +551,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             ),
 
             const SizedBox(height: 24),
-
-            // Bagian: order aktif (jika ada) -> kontrol status
+            // Aktif Order Card
             Builder(
               builder: (ctx) {
                 final auth = Provider.of<AuthService>(context, listen: false);
@@ -450,12 +570,35 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                       .snapshots(),
                   builder: (context, snapshot) {
                     if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                      // Jangan panggil setState secara sinkron di dalam build.
+                      if (_activeOrderId != null) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (!mounted) return;
+                          // Pastikan tidak menggandakan setState berkali-kali
+                          if (_activeOrderId != null) {
+                            setState(() {
+                              _activeOrderId = null;
+                              _activeOrderData = null;
+                            });
+                          }
+                        });
+                      }
                       return const SizedBox.shrink();
                     }
                     final doc = snapshot.data!.docs.first;
                     final data = doc.data() as Map<String, dynamic>;
                     final status = data['status'] as String? ?? '';
                     final orderId = doc.id;
+
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (_activeOrderId != orderId ||
+                          _activeOrderData?['status'] != status) {
+                        setState(() {
+                          _activeOrderId = orderId;
+                          _activeOrderData = data;
+                        });
+                      }
+                    });
 
                     return Card(
                       elevation: 2,
@@ -526,18 +669,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                             const SizedBox(height: 8),
                             Text('Alamat: ${data['address'] ?? '-'}'),
                             const SizedBox(height: 6),
-                            // status line removed (status shown as badge)
                             const SizedBox(height: 8),
                             Row(
                               children: [
                                 if (status == 'accepted')
                                   ElevatedButton(
-                                    onPressed: () async {
-                                      await _orderService.updateStatus(
-                                        orderId,
-                                        'on_the_way',
-                                      );
-                                    },
+                                    onPressed: _onDepartPressed,
                                     child: const Text('Berangkat'),
                                   ),
                                 const SizedBox(width: 8),
@@ -548,6 +685,13 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                         orderId,
                                         'arrived',
                                       );
+                                      if (context.mounted) {
+                                        setState(() {
+                                          _activeOrderId = null;
+                                          _activeOrderData = null;
+                                          _locationUpdateTimer?.cancel();
+                                        });
+                                      }
                                     },
                                     child: const Text('Tiba'),
                                   ),
@@ -558,7 +702,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                       backgroundColor: Colors.green[700],
                                     ),
                                     onPressed: () async {
-                                      // Selesaikan order (tanpa foto)
                                       await _orderService.updateStatus(
                                         orderId,
                                         'completed',

@@ -43,12 +43,14 @@ class _LoginScreenState extends State<LoginScreen> {
         } else if (role == 'user') {
           if (!mounted) return;
           Navigator.pushReplacementNamed(context, '/user');
+        } else if (role == 'admin') {
+          if (!mounted) return;
+          Navigator.pushReplacementNamed(context, '/admin');
         } else {
-          // Role null atau tidak dikenali -> blokir akses dan tawarkan pendaftaran
           await _showErrorDialog(
-            title: 'Role tidak dikenali',
+            title: 'akses ditolak',
             message:
-                'Peran pengguna tidak ditemukan atau tidak valid. Ingin mendaftar ulang?',
+                'Akun ini tidak memiliki role yang valid. Ingin mendaftar ulang?',
             actionLabel: 'Daftar',
             action: () => Navigator.pushNamed(context, '/register'),
           );

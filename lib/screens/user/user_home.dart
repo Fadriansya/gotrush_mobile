@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
 import 'dart:async';
 import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
 import '../profile_screen.dart';
 import '../order_history_widget.dart';
 import '../../utils/alerts.dart';
+import 'package:sampah_online/screens/map_selection_screen.dart';
+import 'dart:math' as math;
 
 class UserHomeScreen extends StatefulWidget {
   const UserHomeScreen({super.key});
@@ -17,12 +19,39 @@ class UserHomeScreen extends StatefulWidget {
 
 class _UserHomeScreenState extends State<UserHomeScreen> {
   int _selectedIndex = 0;
-  StreamSubscription<QuerySnapshot>? _orderSub;
+  StreamSubscription<firestore.QuerySnapshot>? _orderSub;
   String? _lastOrderId;
   String? _lastOrderStatus;
-  bool _dialogOpen = false; // guard untuk mencegah dialog tumpuk
+  bool _dialogOpen = false;
   DateTime? _lastNotifyAt;
   String? _lastNotifiedOrderId;
+  final firestore.GeoPoint _monasLocation = const firestore.GeoPoint(
+    -6.175392,
+    106.827153,
+  );
+  double _calculateDistance(
+    firestore.GeoPoint point1,
+    firestore.GeoPoint point2,
+  ) {
+    const double R = 6371;
+
+    double lat1 = point1.latitude * (3.14159265359 / 180);
+    double lon1 = point1.longitude * (3.14159265359 / 180);
+    double lat2 = point2.latitude * (3.14159265359 / 180);
+    double lon2 = point2.longitude * (3.14159265359 / 180);
+
+    double dlon = lon2 - lon1;
+    double dlat = lat2 - lat1;
+
+    double a =
+        math.sin(dlat / 2) * math.sin(dlat / 2) +
+        math.cos(lat1) *
+            math.cos(lat2) *
+            math.sin(dlon / 2) *
+            math.sin(dlon / 2);
+    double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return R * c;
+  }
 
   final List<Widget> _pages = [
     const _BerandaPage(),
@@ -39,12 +68,10 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   @override
   void initState() {
     super.initState();
-    // Subscribe langsung di initState tanpa postFrameCallback. Menggunakan
-    // Provider.of(context, listen: false) aman di initState.
     final auth = Provider.of<AuthService>(context, listen: false);
     final uid = auth.currentUser?.uid;
     if (uid != null) {
-      _orderSub = FirebaseFirestore.instance
+      _orderSub = firestore.FirebaseFirestore.instance
           .collection('orders')
           .where('user_id', isEqualTo: uid)
           .orderBy('created_at', descending: true)
@@ -87,21 +114,16 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   ) {
     if (!mounted) return;
 
-    // Debounce: jangan tampilkan notifikasi/dialog lebih sering dari 3 detik
     final now = DateTime.now();
     if (_lastNotifyAt != null && _lastNotifiedOrderId == orderId) {
       final diff = now.difference(_lastNotifyAt!);
       if (diff < const Duration(seconds: 3)) {
-        // terlalu cepat, abaikan
         return;
       }
     }
     _lastNotifyAt = now;
     _lastNotifiedOrderId = orderId;
 
-    // Jika sudah ada dialog terbuka, jangan buka dialog baru (mencegah freeze karena
-    // dialog menumpuk). Untuk snackbars tidak perlu guard karena mereka tidak
-    // mem-block UI seperti dialog.
     if (status == 'accepted') {
       if (_dialogOpen) return;
       _dialogOpen = true;
@@ -208,9 +230,21 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     );
   }
 
-  void _showCreateOrderDialog(BuildContext context) {
+  void _showCreateOrderDialog(BuildContext context) async {
+    final firestore.GeoPoint? selectedLocation = await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (ctx) => const MapSelectionScreen()));
+    if (selectedLocation == null) {
+      return;
+    }
+    final double calculatedDistance = _calculateDistance(
+      _monasLocation,
+      selectedLocation,
+    );
     final addressCtl = TextEditingController();
-    final distanceCtl = TextEditingController();
+    final distanceCtl = TextEditingController(
+      text: calculatedDistance.toStringAsFixed(2),
+    );
     final weightCtl = TextEditingController();
     final priceCtl = TextEditingController();
 
@@ -221,7 +255,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
           void _updatePrice() {
             final distance = double.tryParse(distanceCtl.text) ?? 0;
             final weight = double.tryParse(weightCtl.text) ?? 0;
-            final price = distance * weight * 5000; // logika harga otomatis
+            final price = (distance * 2000) + (weight * 2000);
             priceCtl.text = price.toStringAsFixed(0);
           }
 
@@ -247,13 +281,21 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                   ),
                   TextField(
                     controller: distanceCtl,
-                    decoration: const InputDecoration(labelText: 'Jarak (km)'),
-                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelStyle: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      labelText:
+                          'Jarak penjemputan ke pembuangan akhir (2000/KM)',
+                    ),
                     onChanged: (_) => _updatePrice(),
                   ),
                   TextField(
                     controller: weightCtl,
-                    decoration: const InputDecoration(labelText: 'Berat (kg)'),
+                    decoration: const InputDecoration(
+                      labelText: 'Berat (2000/kg)',
+                    ),
                     keyboardType: TextInputType.number,
                     onChanged: (_) => _updatePrice(),
                   ),
@@ -290,13 +332,14 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                     return;
                   }
 
-                  Navigator.of(ctx).pop(); // tutup dialog
+                  Navigator.of(ctx).pop();
                   await _saveOrderToFirestore(
                     context: context,
                     address: address,
                     distance: distance,
                     weight: weight,
                     price: price,
+                    location: selectedLocation,
                   );
                 },
                 child: const Text('Simpan'),
@@ -314,6 +357,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     required double distance,
     required double weight,
     required double price,
+    required firestore.GeoPoint location,
   }) async {
     try {
       final auth = Provider.of<AuthService>(context, listen: false);
@@ -328,15 +372,17 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         'distance': distance,
         'price': price,
         'address': address,
-        'location': const GeoPoint(
-          0,
-          0,
+        'location': firestore.GeoPoint(
+          location.latitude,
+          location.longitude,
         ), // bisa diubah ke lokasi sebenarnya nanti
         'photo_urls': [],
-        'created_at': Timestamp.now(),
+        'created_at': firestore.Timestamp.now(),
       };
 
-      await FirebaseFirestore.instance.collection('orders').add(order);
+      await firestore.FirebaseFirestore.instance
+          .collection('orders')
+          .add(order);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -359,7 +405,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   }
 }
 
-// ─── BERANDA ──────────────────────────────────────────────────────
+// BERANDA
 class _BerandaPage extends StatelessWidget {
   const _BerandaPage();
 
@@ -439,9 +485,7 @@ class _BerandaPage extends StatelessWidget {
   }
 }
 
-//
-// ─── RIWAYAT ─────────────────────────────────────────────────────
-//
+//  RIWAYAT
 class _RiwayatPage extends StatelessWidget {
   const _RiwayatPage();
 
@@ -456,9 +500,7 @@ class _RiwayatPage extends StatelessWidget {
   }
 }
 
-//
-// ─── PROFIL ──────────────────────────────────────────────────────
-//
+//  PROFIL
 class _ProfilPage extends StatelessWidget {
   const _ProfilPage();
 
@@ -468,9 +510,7 @@ class _ProfilPage extends StatelessWidget {
   }
 }
 
-//
-// ─── MENU CARD ───────────────────────────────────────────────────
-//
+//  MENU CARD
 class _MenuCard extends StatelessWidget {
   final String title;
   final String subtitle;
