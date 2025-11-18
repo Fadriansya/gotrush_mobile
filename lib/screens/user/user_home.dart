@@ -74,24 +74,26 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       _orderSub = firestore.FirebaseFirestore.instance
           .collection('orders')
           .where('user_id', isEqualTo: uid)
-          .orderBy('created_at', descending: true)
-          .limit(1)
+          .where(
+            'status',
+            whereIn: ['waiting', 'accepted', 'on_the_way', 'arrived'],
+          )
           .snapshots()
           .listen(
             (snap) {
-              if (snap.docs.isEmpty) return;
-              final doc = snap.docs.first;
-              final id = doc.id;
-              final data = doc.data();
-              final status = (data['status'] as String?) ?? '';
-              if (_lastOrderId != id || _lastOrderStatus != status) {
-                _lastOrderId = id;
-                _lastOrderStatus = status;
-                _handleStatusChange(
-                  id,
-                  status,
-                  Map<String, dynamic>.from(data),
-                );
+              for (var doc in snap.docs) {
+                final id = doc.id;
+                final data = doc.data();
+                final status = (data['status'] as String?) ?? '';
+                if (_lastOrderId != id || _lastOrderStatus != status) {
+                  _lastOrderId = id;
+                  _lastOrderStatus = status;
+                  _handleStatusChange(
+                    id,
+                    status,
+                    Map<String, dynamic>.from(data),
+                  );
+                }
               }
             },
             onError: (e) {
@@ -231,17 +233,20 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   }
 
   void _showCreateOrderDialog(BuildContext context) async {
-    final firestore.GeoPoint? selectedLocation = await Navigator.of(
+    final result = await Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (ctx) => const MapSelectionScreen()));
-    if (selectedLocation == null) {
+    if (result == null) {
       return;
     }
+    final firestore.GeoPoint selectedLocation = result['location'];
+    final String selectedAddress = result['address'];
+
     final double calculatedDistance = _calculateDistance(
       _monasLocation,
       selectedLocation,
     );
-    final addressCtl = TextEditingController();
+    final addressCtl = TextEditingController(text: selectedAddress);
     final distanceCtl = TextEditingController(
       text: calculatedDistance.toStringAsFixed(2),
     );
