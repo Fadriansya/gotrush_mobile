@@ -89,7 +89,7 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
 
   Future<void> _startTrackingAndDrawRoute() async {
     Position currentPosition = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
     );
 
     final driverLocation = osm.GeoPoint(
@@ -121,14 +121,14 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
           zoomInto: true, // Zoom otomatis ke rute yang digambar
         ),
       );
-      print("✅ Rute berhasil digambar.");
+      debugPrint("✅ Rute berhasil digambar.");
     } on Exception catch (e) {
       // Menggunakan Exception yang umum untuk menghindari error
-      print("❌ Gagal menggambar rute (Network/API Error): $e");
+      debugPrint("❌ Gagal menggambar rute (Network/API Error): $e");
       // Jika gagal, set zoom agar user melihat lokasinya saja
       await _mapController.setZoom(zoomLevel: 16);
     } catch (e) {
-      print("❌ Terjadi error tak terduga saat menggambar rute: $e");
+      debugPrint("❌ Terjadi error tak terduga saat menggambar rute: $e");
     }
   }
 
@@ -150,6 +150,24 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
         controller: _mapController,
         osmOption: osm.OSMOption(
           zoomOption: const osm.ZoomOption(initZoom: 15),
+          staticPoints: [
+            osm.StaticPositionGeoPoint(
+              'user_location',
+              const osm.MarkerIcon(
+                icon: Icon(
+                  Icons.person_pin_circle,
+                  color: Colors.red,
+                  size: 48,
+                ),
+              ),
+              [
+                osm.GeoPoint(
+                  latitude: widget.userLocation.latitude,
+                  longitude: widget.userLocation.longitude,
+                ),
+              ],
+            ),
+          ],
         ),
         onMapIsReady: (isReady) async {
           if (isReady) {
