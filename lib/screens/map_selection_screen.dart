@@ -103,25 +103,38 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
             ),
             // Mengambil lokasi ketika peta selesai dimuat
             onMapIsReady: (isReady) async {
-              if (isReady) {
-                final centerPoint = await _mapController.centerMap;
-                // Saat peta siap, akan mendapatkan lokasi pusat peta saat ini
-                _selectedLocation = centerPoint;
-                setState(() {});
+              if (isReady && mounted) {
+                try {
+                  final centerPoint = await _mapController.centerMap;
+                  // Saat peta siap, akan mendapatkan lokasi pusat peta saat ini
+                  if (mounted) {
+                    setState(() {
+                      _selectedLocation = centerPoint;
+                    });
+                  }
+                } catch (e) {
+                  debugPrint('Error getting center map: $e');
+                }
               }
             },
             // Mengambil lokasi baru ketika user menggeser peta
             onGeoPointClicked: (osm.GeoPoint point) {
               // Ketika user klik suatu titik, titik itu menjadi GeoPoint yang dipilih
-              _selectedLocation = point;
-              _getAddressFromLocation(point);
-              setState(() {});
+              if (mounted) {
+                setState(() {
+                  _selectedLocation = point;
+                });
+                _getAddressFromLocation(point);
+              }
             },
             // Saat user menggeser peta, ambil lokasi pusat baru
             onMapMoved: (newRegion) {
-              _selectedLocation = newRegion.center;
-              _getAddressFromLocation(newRegion.center);
-              setState(() {});
+              if (mounted) {
+                setState(() {
+                  _selectedLocation = newRegion.center;
+                });
+                _getAddressFromLocation(newRegion.center);
+              }
             },
             mapIsLoading: const Center(child: CircularProgressIndicator()),
           ),
