@@ -3,8 +3,6 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
 import 'auth_service.dart';
 
-/// NotificationService handles FCM token registration and foreground local
-/// notifications. For background/terminated notifications rely on FCM payloads.
 class NotificationService {
   NotificationService._private();
   static final NotificationService _instance = NotificationService._private();
@@ -14,9 +12,6 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _local =
       FlutterLocalNotificationsPlugin();
 
-  /// Initialize notifications. Pass an AuthService instance so we can persist
-  /// the FCM token to the user's profile (used by Cloud Functions to send
-  /// targeted notifications).
   Future<void> init({required AuthService authService}) async {
     // Request permission (iOS/macOS)
     final settings = await _fcm.requestPermission(

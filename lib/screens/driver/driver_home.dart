@@ -312,6 +312,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                       .acceptOrder(orderId, driverId);
                                   if (!mounted) return;
                                   if (accepted) {
+                                    _orderSub?.cancel();
                                     WidgetsBinding.instance
                                         .addPostFrameCallback((_) {
                                           if (!mounted) return;
@@ -330,11 +331,13 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                       type: AlertType.success,
                                     );
                                   } else {
-                                    showAppSnackBar(
-                                      context,
-                                      'Gagal menerima: pesanan sudah diambil driver lain',
-                                      type: AlertType.error,
-                                    );
+                                    if (!accepted) {
+                                      showAppSnackBar(
+                                        context,
+                                        'Gagal menerima: pesanan sudah diambil driver lain',
+                                        type: AlertType.error,
+                                      );
+                                    }
                                   }
                                 } catch (e) {
                                   if (!context.mounted) return;
@@ -743,7 +746,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     );
   }
 
-  // 🔹 Widget untuk menu card
+  // Widget untuk menu card
   Widget _buildMenuCard(
     BuildContext context, {
     required String title,
@@ -755,7 +758,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     return InkWell(
       borderRadius: BorderRadius.circular(20),
       onTap: onTap,
-      // use withAlpha instead of withOpacity to avoid deprecation
       splashColor: color.withAlpha((0.2 * 255).round()),
       child: Container(
         padding: const EdgeInsets.all(18),

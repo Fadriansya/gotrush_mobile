@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
 import 'package:flutter_osm_plugin/flutter_osm_plugin.dart' as osm;
 import 'package:geolocator/geolocator.dart';
+import 'package:provider/provider.dart';
+import '../../services/auth_service.dart';
 
 class DriverMapTrackingScreen extends StatefulWidget {
   final String orderId;
@@ -20,6 +23,9 @@ class DriverMapTrackingScreen extends StatefulWidget {
 
 class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
   late osm.MapController _mapController;
+  StreamSubscription<firestore.DocumentSnapshot<Map<String, dynamic>>>?
+  _locationSub;
+  osm.GeoPoint? _driverLocation;
 
   @override
   void initState() {
@@ -30,6 +36,42 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
         longitude: widget.userLocation.longitude,
       ),
     );
+    _listenToDriverLocation();
+  }
+
+  void _listenToDriverLocation() {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final driverId = auth.currentUser?.uid;
+    if (driverId == null) return;
+
+    _locationSub = firestore.FirebaseFirestore.instance
+        .collection('drivers_location')
+        .doc(driverId)
+        .snapshots()
+        .listen((snap) {
+          if (!mounted || !snap.exists) return;
+          final data = snap.data()!;
+          final lat = data['lat'] as double?;
+          final lng = data['lng'] as double?;
+          if (lat != null && lng != null) {
+            final newDriverLocation = osm.GeoPoint(
+              latitude: lat,
+              longitude: lng,
+            );
+
+            // Update marker jika posisi berubah
+            if (_driverLocation != null) {
+              _mapController.removeMarker(_driverLocation!);
+            }
+            _mapController.addMarker(
+              newDriverLocation,
+              markerIcon: const osm.MarkerIcon(
+                icon: Icon(Icons.two_wheeler, color: Colors.blue, size: 48),
+              ),
+            );
+            setState(() => _driverLocation = newDriverLocation);
+          }
+        });
   }
 
   Future<void> _addInitialMarker() async {
@@ -92,6 +134,7 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
 
   @override
   void dispose() {
+    _locationSub?.cancel();
     _mapController.dispose();
     super.dispose();
   }

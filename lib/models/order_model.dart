@@ -4,7 +4,7 @@ class OrderModel {
   final String id;
   final String userId;
   final String? driverId;
-  final String status; // waiting, accepted, on_the_way, completed
+  final String status;
   final double weight;
   final double distance;
   final double price;

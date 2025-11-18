@@ -1,7 +1,3 @@
-// =============================
-// order_service.dart (FINAL)
-// =============================
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
@@ -10,9 +6,7 @@ class OrderService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final uuid = Uuid();
 
-  // ================================================================
   // 1. Create Order (User membuat pesanan)
-  // ================================================================
   Future<String> createOrder({
     required String userId,
     required double weight,
@@ -54,9 +48,7 @@ class OrderService {
     return orderId;
   }
 
-  // ================================================================
   // 2. Driver menerima pesanan (atomic)
-  // ================================================================
   Future<bool> acceptOrder(String orderId, String driverId) async {
     final orderRef = _db.collection('orders').doc(orderId);
     final historyRef = _db.collection('order_history').doc(orderId);
@@ -90,7 +82,6 @@ class OrderService {
 
   // ================================================================
   // 3. Update status order (on_the_way, arrived, completed, dll)
-  // ================================================================
   Future<void> updateStatus(String orderId, String newStatus) async {
     final orderRef = _db.collection('orders').doc(orderId);
     final historyRef = _db.collection('order_history').doc(orderId);
