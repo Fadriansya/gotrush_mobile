@@ -33,7 +33,7 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
   // Fungsi untuk mendapatkan alamat dari koordinat dengan debouncing
   void _getAddressFromLocation(osm.GeoPoint point) {
     _addressLookupTimer?.cancel();
-    _addressLookupTimer = Timer(const Duration(milliseconds: 500), () async {
+    _addressLookupTimer = Timer(const Duration(milliseconds: 1000), () async {
       if (!mounted) return;
       setState(() => _isLoadingAddress = true);
       try {
