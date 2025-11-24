@@ -45,3 +45,80 @@ exports.backfillCompletedAt = functions.https.onRequest(async (req, res) => {
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
+
+// Cloud Function to send FCM notifications on order status changes
+exports.sendOrderStatusNotification = functions.firestore.document("orders/{orderId}").onUpdate(async (change, context) => {
+  const newData = change.after.data();
+  const previousData = change.before.data();
+
+  const newStatus = newData.status;
+  const previousStatus = previousData.status;
+
+  // Only send notification if status has changed
+  if (newStatus === previousStatus) return;
+
+  let targetUserId;
+  let messageTitle;
+  let messageBody;
+
+  if (["accepted", "on_the_way", "arrived", "pickup_confirmed_by_driver"].includes(newStatus)) {
+    // Send to user
+    targetUserId = newData.user_id;
+    switch (newStatus) {
+      case "accepted":
+        messageTitle = "Driver Ditemukan";
+        messageBody = "Driver telah menerima pesanan Anda.";
+        break;
+      case "on_the_way":
+        messageTitle = "Driver Menuju Lokasi";
+        messageBody = "Driver sedang menuju lokasi Anda.";
+        break;
+      case "arrived":
+        messageTitle = "Driver Telah Sampai";
+        messageBody = "Driver telah sampai di lokasi. Silakan siapkan sampah.";
+        break;
+      case "pickup_confirmed_by_driver":
+        messageTitle = "Konfirmasi Pengambilan";
+        messageBody = "Driver telah mengkonfirmasi pengambilan sampah. Harap konfirmasi.";
+        break;
+    }
+  } else if (newStatus === "completed") {
+    // Send to driver
+    targetUserId = newData.driver_id;
+    messageTitle = "Pesanan Selesai";
+    messageBody = "Pengguna telah mengkonfirmasi pengambilan sampah. Pesanan selesai.";
+  } else {
+    return; // No notification for other statuses
+  }
+
+  if (!targetUserId) return;
+
+  try {
+    // Get the FCM token from the users collection
+    const userDoc = await db.collection("users").doc(targetUserId).get();
+    const fcmToken = userDoc.data()?.fcm_token;
+
+    if (!fcmToken) {
+      console.log(`No FCM token for user ${targetUserId}`);
+      return;
+    }
+
+    // Send the notification
+    const message = {
+      token: fcmToken,
+      notification: {
+        title: messageTitle,
+        body: messageBody,
+      },
+      data: {
+        orderId: context.params.orderId,
+        status: newStatus,
+      },
+    };
+
+    await admin.messaging().send(message);
+    console.log(`Notification sent to ${targetUserId} for status ${newStatus}`);
+  } catch (error) {
+    console.error("Error sending notification:", error);
+  }
+});

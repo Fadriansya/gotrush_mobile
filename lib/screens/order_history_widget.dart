@@ -6,10 +6,10 @@ class OrderHistoryWidget extends StatelessWidget {
   final String currentUserId;
   final String role;
   const OrderHistoryWidget({
-    Key? key,
+    super.key,
     required this.currentUserId,
     required this.role,
-  }) : super(key: key);
+  });
 
   // ======== Fungsi bantu warna & ikon status ========
   Color _getStatusColor(String status) {
@@ -20,6 +20,10 @@ class OrderHistoryWidget extends StatelessWidget {
         return Colors.orange;
       case 'on_the_way':
         return Colors.blueAccent;
+      case 'arrived':
+        return Colors.purple;
+      case 'pickup_confirmed_by_driver':
+        return Colors.yellow;
       case 'completed':
         return Colors.green;
       default:
@@ -35,6 +39,10 @@ class OrderHistoryWidget extends StatelessWidget {
         return Icons.directions_run;
       case 'on_the_way':
         return Icons.local_shipping;
+      case 'arrived':
+        return Icons.location_on;
+      case 'pickup_confirmed_by_driver':
+        return Icons.check_circle_outline;
       case 'completed':
         return Icons.check_circle;
       default:
@@ -50,6 +58,8 @@ class OrderHistoryWidget extends StatelessWidget {
 
   // ======== Fungsi hapus satu pesanan ========
   Future<void> _deleteOrder(BuildContext context, String orderId) async {
+    if (!context.mounted) return;
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -69,26 +79,32 @@ class OrderHistoryWidget extends StatelessWidget {
       ),
     );
 
-    if (confirm == true) {
+    if (confirm == true && context.mounted) {
       try {
         await FirebaseFirestore.instance
             .collection('order_history')
             .doc(orderId)
             .delete();
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Pesanan berhasil dihapus")),
-        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Pesanan berhasil dihapus")),
+          );
+        }
       } catch (e) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Gagal menghapus: $e")));
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text("Gagal menghapus: $e")));
+        }
       }
     }
   }
 
   // ======== Fungsi hapus semua riwayat ========
   Future<void> _deleteAllOrders(BuildContext context) async {
+    if (!context.mounted) return;
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -111,7 +127,7 @@ class OrderHistoryWidget extends StatelessWidget {
       ),
     );
 
-    if (confirm == true) {
+    if (confirm == true && context.mounted) {
       try {
         final batch = FirebaseFirestore.instance.batch();
         final query = await FirebaseFirestore.instance
@@ -128,13 +144,17 @@ class OrderHistoryWidget extends StatelessWidget {
 
         await batch.commit();
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Semua riwayat berhasil dihapus")),
-        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Semua riwayat berhasil dihapus")),
+          );
+        }
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Gagal menghapus semua riwayat: $e")),
-        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Gagal menghapus semua riwayat: $e")),
+          );
+        }
       }
     }
   }
@@ -265,7 +285,7 @@ class OrderHistoryWidget extends StatelessWidget {
                                 decoration: BoxDecoration(
                                   color: _getStatusColor(
                                     status,
-                                  ).withOpacity(0.2),
+                                  ).withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 padding: const EdgeInsets.symmetric(

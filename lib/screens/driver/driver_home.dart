@@ -26,6 +26,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   bool _showingDialog = false;
   Map<String, dynamic>? _activeOrderData;
   String? _activeOrderId;
+  String? _previousStatus;
 
   @override
   void initState() {
@@ -79,7 +80,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     FirebaseFirestore.instance
         .collection('orders')
         .where('driver_id', isEqualTo: driverUid)
-        .where('status', whereIn: ['accepted', 'on_the_way'])
+        .where('archived', isEqualTo: false)
+        .where(
+          'status',
+          whereIn: ['accepted', 'on_the_way', 'arrived', 'completed'],
+        )
         .snapshots()
         .listen((activeSnapshot) {
           if (activeSnapshot.docs.isNotEmpty) {
@@ -115,7 +120,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     if (_activeOrderId == null || _activeOrderData == null) return;
     final GeoPoint defaultLocation = const GeoPoint(-6.1900, 106.7969);
     final GeoPoint pickupLocation =
-        _activeOrderData!['pickup_location'] as GeoPoint? ?? defaultLocation;
+        _activeOrderData!['location'] as GeoPoint? ?? defaultLocation;
     try {
       await _orderService.updateStatus(_activeOrderId!, 'on_the_way');
       if (!mounted) return;
@@ -313,6 +318,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                   if (!mounted) return;
                                   if (accepted) {
                                     _orderSub?.cancel();
+                                    // Reset _showingDialog immediately after success to prevent re-showing dialog
+                                    setState(() => _showingDialog = false);
                                     WidgetsBinding.instance
                                         .addPostFrameCallback((_) {
                                           if (!mounted) return;
@@ -332,6 +339,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                     );
                                   } else {
                                     if (!accepted) {
+                                      // Also ensure dialog flag is reset on failure
+                                      setState(() => _showingDialog = false);
                                       showAppSnackBar(
                                         context,
                                         'Gagal menerima: pesanan sudah diambil driver lain',
@@ -341,6 +350,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                   }
                                 } catch (e) {
                                   if (!context.mounted) return;
+                                  setState(() => _showingDialog = false);
                                   showAppSnackBar(
                                     context,
                                     'Gagal terima pesanan: $e',
@@ -350,9 +360,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                   WidgetsBinding.instance.addPostFrameCallback((
                                     _,
                                   ) {
-                                    if (mounted) {
-                                      setState(() => _showingDialog = false);
-                                    }
                                     if (ctx2.mounted) {
                                       Navigator.of(ctx2).pop();
                                     }
@@ -565,9 +572,15 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   stream: FirebaseFirestore.instance
                       .collection('orders')
                       .where('driver_id', isEqualTo: driverUid)
+                      .where('archived', isEqualTo: false)
                       .where(
                         'status',
-                        whereIn: ['accepted', 'on_the_way', 'arrived'],
+                        whereIn: [
+                          'accepted',
+                          'on_the_way',
+                          'arrived',
+                          'pickup_confirmed_by_driver',
+                        ],
                       )
                       .limit(1)
                       .snapshots(),
@@ -636,37 +649,47 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                     ),
                                   ),
                                 ),
-                                AnimatedContainer(
-                                  duration: const Duration(milliseconds: 350),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: status == 'accepted'
-                                        ? Colors.orange[100]
-                                        : status == 'on_the_way'
-                                        ? Colors.blue[100]
-                                        : status == 'arrived'
-                                        ? Colors.green[100]
-                                        : Colors.grey[200],
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: Text(
-                                    status.replaceAll('_', ' ').toUpperCase(),
-                                    style: TextStyle(
+                                if (status != 'completed')
+                                  AnimatedContainer(
+                                    duration: const Duration(milliseconds: 350),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
                                       color: status == 'accepted'
-                                          ? Colors.orange[800]
+                                          ? Colors.orange[100]
                                           : status == 'on_the_way'
-                                          ? Colors.blue[800]
+                                          ? Colors.blue[100]
                                           : status == 'arrived'
-                                          ? Colors.green[800]
-                                          : Colors.grey[700],
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 12,
+                                          ? Colors.green[100]
+                                          : status ==
+                                                'pickup_confirmed_by_driver'
+                                          ? Colors.yellow[100]
+                                          : Colors.grey[200],
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Text(
+                                      status == 'completed'
+                                          ? 'SELESAI'
+                                          : status
+                                                .replaceAll('_', ' ')
+                                                .toUpperCase(),
+                                      style: TextStyle(
+                                        color: status == 'accepted'
+                                            ? Colors.orange[800]
+                                            : status == 'on_the_way'
+                                            ? Colors.blue[800]
+                                            : status == 'arrived'
+                                            ? Colors.green[800]
+                                            : status == 'completed'
+                                            ? Colors.green[800]
+                                            : Colors.grey[700],
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
+                                      ),
                                     ),
                                   ),
-                                ),
                               ],
                             ),
                             const SizedBox(height: 8),
@@ -709,8 +732,33 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                         orderId,
                                         'completed',
                                       );
+                                      if (context.mounted) {
+                                        showAppSnackBar(
+                                          context,
+                                          'Pengambilan sampah berhasil dikonfirmasi!',
+                                          type: AlertType.success,
+                                        );
+                                      }
                                     },
                                     child: const Text('Konfirmasi Ambil'),
+                                  ),
+                                if (status == 'completed')
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green[100],
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Text(
+                                      'Selesai',
+                                      style: TextStyle(
+                                        color: Colors.green,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
                                   ),
                               ],
                             ),

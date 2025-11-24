@@ -15,11 +15,16 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   final authService = AuthService();
-  await NotificationService().init(authService: authService);
+  final notificationService = NotificationService();
+  await notificationService.init(authService: authService);
+  WidgetsFlutterBinding.ensureInitialized();
 
   runApp(
     MultiProvider(
-      providers: [ChangeNotifierProvider.value(value: authService)],
+      providers: [
+        ChangeNotifierProvider.value(value: authService),
+        Provider.value(value: notificationService),
+      ],
       child: const MyApp(),
     ),
   );

@@ -4,11 +4,15 @@ import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
 import 'dart:async';
 import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
+import '../../services/order_service.dart';
+import '../../services/notification_service.dart';
 import '../profile_screen.dart';
 import '../order_history_widget.dart';
 import '../../utils/alerts.dart';
 import 'package:sampah_online/screens/map_selection_screen.dart';
 import 'dart:math' as math;
+import '../../payment.dart';
+import '../../midtrans_payment_webview.dart';
 
 class UserHomeScreen extends StatefulWidget {
   const UserHomeScreen({super.key});
@@ -20,8 +24,7 @@ class UserHomeScreen extends StatefulWidget {
 class _UserHomeScreenState extends State<UserHomeScreen> {
   int _selectedIndex = 0;
   StreamSubscription<firestore.QuerySnapshot>? _orderSub;
-  String? _lastOrderId;
-  String? _lastOrderStatus;
+  Map<String, String> _orderStatuses = {}; // Track status per order ID
   bool _dialogOpen = false;
   DateTime? _lastNotifyAt;
   String? _lastNotifiedOrderId;
@@ -73,10 +76,15 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     if (uid != null) {
       _orderSub = firestore.FirebaseFirestore.instance
           .collection('orders')
-          .where('user_id', isEqualTo: uid)
           .where(
             'status',
-            whereIn: ['waiting', 'accepted', 'on_the_way', 'arrived'],
+            whereIn: [
+              'waiting',
+              'accepted',
+              'on_the_way',
+              'arrived',
+              'pickup_confirmed_by_driver',
+            ],
           )
           .snapshots()
           .listen(
@@ -85,9 +93,12 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                 final id = doc.id;
                 final data = doc.data();
                 final status = (data['status'] as String?) ?? '';
-                if (_lastOrderId != id || _lastOrderStatus != status) {
-                  _lastOrderId = id;
-                  _lastOrderStatus = status;
+                final userId = data['user_id'] as String?;
+                if (userId != uid) continue;
+                final previousStatus = _orderStatuses[id];
+
+                if (previousStatus != status) {
+                  _orderStatuses[id] = status;
                   _handleStatusChange(
                     id,
                     status,
@@ -113,7 +124,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     String orderId,
     String status,
     Map<String, dynamic> data,
-  ) {
+  ) async {
     if (!mounted) return;
 
     final now = DateTime.now();
@@ -126,7 +137,18 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     _lastNotifyAt = now;
     _lastNotifiedOrderId = orderId;
 
+    // Get notification service
+    final notificationService = Provider.of<NotificationService>(
+      context,
+      listen: false,
+    );
+
     if (status == 'accepted') {
+      await notificationService.showLocal(
+        id: orderId.hashCode,
+        title: 'Driver Ditemukan',
+        body: 'Driver telah menerima pesanan Anda.',
+      );
       if (_dialogOpen) return;
       _dialogOpen = true;
       showAppDialog(
@@ -139,12 +161,22 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         if (mounted) setState(() => _dialogOpen = false);
       });
     } else if (status == 'on_the_way') {
+      await notificationService.showLocal(
+        id: orderId.hashCode + 1,
+        title: 'Driver Menuju Lokasi',
+        body: 'Driver sedang menuju lokasi Anda.',
+      );
       showAppSnackBar(
         context,
         'Driver sedang menuju lokasi Anda',
         type: AlertType.info,
       );
     } else if (status == 'arrived') {
+      await notificationService.showLocal(
+        id: orderId.hashCode + 2,
+        title: 'Driver Telah Sampai',
+        body: 'Driver telah sampai di lokasi. Silakan siapkan sampah.',
+      );
       if (_dialogOpen) return;
       _dialogOpen = true;
       showAppDialog(
@@ -155,7 +187,58 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       ).then((_) {
         if (mounted) setState(() => _dialogOpen = false);
       });
+    } else if (status == 'pickup_confirmed_by_driver') {
+      await notificationService.showLocal(
+        id: orderId.hashCode + 3,
+        title: 'Konfirmasi Pengambilan',
+        body:
+            'Driver telah mengkonfirmasi pengambilan sampah. Harap konfirmasi.',
+      );
+      if (_dialogOpen) return;
+      _dialogOpen = true;
+      showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Konfirmasi Pengambilan'),
+          content: const Text(
+            'Driver telah mengkonfirmasi pengambilan sampah. Apakah Anda setuju?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                if (mounted) setState(() => _dialogOpen = false);
+              },
+              child: const Text('Tolak'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.of(ctx).pop();
+                if (mounted) setState(() => _dialogOpen = false);
+                // Update status to completed
+                await firestore.FirebaseFirestore.instance
+                    .collection('orders')
+                    .doc(orderId)
+                    .update({'status': 'completed'});
+                showAppSnackBar(
+                  context,
+                  'Pengambilan sampah berhasil dikonfirmasi!',
+                  type: AlertType.success,
+                );
+              },
+              child: const Text('Setuju'),
+            ),
+          ],
+        ),
+      ).then((_) {
+        if (mounted) setState(() => _dialogOpen = false);
+      });
     } else if (status == 'completed') {
+      await notificationService.showLocal(
+        id: orderId.hashCode + 4,
+        title: 'Pesanan Selesai',
+        body: 'Terima kasih! Sampah telah diambil.',
+      );
       if (_dialogOpen) return;
       _dialogOpen = true;
       showAppDialog(
@@ -349,6 +432,59 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                 },
                 child: const Text('Simpan'),
               ),
+              ElevatedButton(
+                onPressed: () async {
+                  final address = addressCtl.text.trim();
+                  final distance = double.tryParse(distanceCtl.text) ?? 0;
+                  final weight = double.tryParse(weightCtl.text) ?? 0;
+                  final price = double.tryParse(priceCtl.text) ?? 0;
+
+                  if (address.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Alamat harus diisi'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return;
+                  }
+
+                  // Ambil data user
+                  final auth = Provider.of<AuthService>(context, listen: false);
+                  final uid = auth.currentUser?.uid ?? '';
+                  final name = auth.currentUser?.displayName ?? 'User';
+                  final email = auth.currentUser?.email ?? 'user@email.com';
+
+                  // Buat order_id unik
+                  final orderId =
+                      'ORDER_${DateTime.now().millisecondsSinceEpoch}_$uid';
+
+                  // Request Snap URL ke backend
+                  final snapUrl = await getMidtransSnapUrl(
+                    orderId: orderId,
+                    grossAmount: price.toInt(),
+                    name: name,
+                    email: email,
+                  );
+
+                  if (snapUrl != null) {
+                    Navigator.of(ctx).pop();
+                    // Buka WebView Snap Midtrans
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            MidtransPaymentWebView(snapUrl: snapUrl),
+                      ),
+                    );
+                  } else {
+                    showAppSnackBar(
+                      context,
+                      'Gagal mendapatkan link pembayaran',
+                    );
+                  }
+                },
+                child: const Text('Bayar'),
+              ),
             ],
           );
         },
@@ -369,30 +505,21 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       final uid = auth.currentUser?.uid;
       if (uid == null) throw Exception('User belum login');
 
-      final order = {
-        'user_id': uid,
-        'driver_id': null,
-        'status': 'waiting',
-        'weight': weight,
-        'distance': distance,
-        'price': price,
-        'address': address,
-        'location': firestore.GeoPoint(
-          location.latitude,
-          location.longitude,
-        ), // bisa diubah ke lokasi sebenarnya nanti
-        'photo_urls': [],
-        'created_at': firestore.Timestamp.now(),
-      };
-
-      await firestore.FirebaseFirestore.instance
-          .collection('orders')
-          .add(order);
+      final orderService = OrderService();
+      final orderId = await orderService.createOrder(
+        userId: uid,
+        weight: weight,
+        distance: distance,
+        price: price,
+        address: address,
+        location: location,
+        photoUrls: [],
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Pesanan berhasil disimpan ke riwayat!'),
+            content: Text('Pesanan berhasil dibuat!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -401,7 +528,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Gagal menyimpan pesanan: $e'),
+            content: Text('Gagal membuat pesanan: $e'),
             backgroundColor: Colors.red,
           ),
         );
