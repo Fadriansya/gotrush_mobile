@@ -1,13 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:uuid/uuid.dart';
 
 class OrderService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
-  final uuid = Uuid();
 
-  // 1. Create Order (User membuat pesanan)
-  Future<String> createOrder({
+  // ================================================================
+  // 1. CREATE ORDER (untuk pending_payment sebelum Snap dibuka)
+  // ================================================================
+  Future<void> createOrder({
+    required String orderId, // <-- DITAMBAHKAN
     required String userId,
     required double weight,
     required double distance,
@@ -15,19 +16,19 @@ class OrderService {
     required String address,
     required GeoPoint location,
     required List<String> photoUrls,
+    required String status, // pending_payment
   }) async {
-    final orderId = uuid.v4();
     final now = FieldValue.serverTimestamp();
 
     final data = {
       "order_id": orderId,
       "user_id": userId,
       "driver_id": null,
-      "status": "waiting",
+      "status": status, // pending_payment
       "weight": weight,
       "distance": distance,
       "price": price,
-      'price_paid': price,
+      "price_paid": price,
       "address": address,
       "location": location,
       "photo_urls": photoUrls,
@@ -36,7 +37,6 @@ class OrderService {
       "archived": false,
     };
 
-    // Gunakan batch agar atomic dan konsisten
     final batch = _db.batch();
     final orderRef = _db.collection('orders').doc(orderId);
     final historyRef = _db.collection('order_history').doc(orderId);
@@ -45,10 +45,11 @@ class OrderService {
     batch.set(historyRef, {...data, "archived_at": null, "completed_at": null});
 
     await batch.commit();
-    return orderId;
   }
 
-  // 2. Driver menerima pesanan (atomic)
+  // ================================================================
+  // 2. DRIVER MENERIMA PESANAN
+  // ================================================================
   Future<bool> acceptOrder(String orderId, String driverId) async {
     final orderRef = _db.collection('orders').doc(orderId);
     final historyRef = _db.collection('order_history').doc(orderId);
@@ -56,11 +57,10 @@ class OrderService {
     try {
       return await _db.runTransaction<bool>((tx) async {
         final snap = await tx.get(orderRef);
-
         if (!snap.exists) return false;
 
         final status = snap.data()?['status'] ?? "";
-        if (status != "waiting") return false; // Sudah diambil orang lain
+        if (status != "waiting") return false; // sudah diambil orang lain
 
         final update = {
           "driver_id": driverId,
@@ -81,14 +81,13 @@ class OrderService {
   }
 
   // ================================================================
-  // 3. Update status order (on_the_way, arrived, completed, dll)
+  // 3. UPDATE STATUS ORDER
+  // ================================================================
   Future<void> updateStatus(String orderId, String newStatus) async {
     final orderRef = _db.collection('orders').doc(orderId);
     final historyRef = _db.collection('order_history').doc(orderId);
 
     final now = FieldValue.serverTimestamp();
-
-    // Ambil data order lengkap
     final fullData = await _getFullOrderData(orderId);
 
     final update = {"status": newStatus, "updated_at": now};
@@ -110,7 +109,7 @@ class OrderService {
   }
 
   // ================================================================
-  // 4. Tambah foto penyelesaian (driver)
+  // 4. TAMBAH FOTO SELESAI OLEH DRIVER
   // ================================================================
   Future<void> addCompletionPhoto(String orderId, String photoUrl) async {
     final fullData = await _getFullOrderData(orderId);
@@ -137,7 +136,7 @@ class OrderService {
   }
 
   // ================================================================
-  // 5. Arsip otomatis (dipanggil setelah completed)
+  // 5. ARSIP OTOMATIS
   // ================================================================
   Future<void> _archiveOrder(String orderId) async {
     final orderRef = _db.collection('orders').doc(orderId);
@@ -145,8 +144,6 @@ class OrderService {
 
     final snap = await orderRef.get();
     if (!snap.exists) return;
-
-    final data = Map<String, dynamic>.from(snap.data() ?? {});
 
     final update = {
       "archived": true,
@@ -161,7 +158,7 @@ class OrderService {
   }
 
   // ================================================================
-  // 6. Stream khusus untuk driver (order waiting terdekat)
+  // 6. STREAM UNTUK DRIVER (ORDER WAITING)
   // ================================================================
   Stream<QuerySnapshot> driverOrders() {
     return _db
@@ -170,6 +167,9 @@ class OrderService {
         .snapshots();
   }
 
+  // ================================================================
+  // HELPER: AMBIL DATA ORDER LENGKAP
+  // ================================================================
   Future<Map<String, dynamic>> _getFullOrderData(String orderId) async {
     final doc = await _db.collection("orders").doc(orderId).get();
     return Map<String, dynamic>.from(doc.data() ?? {});

@@ -1,18 +1,18 @@
+import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
-import 'dart:async';
 import 'package:provider/provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
 import '../../services/auth_service.dart';
 import '../../services/order_service.dart';
 import '../../services/notification_service.dart';
-import '../profile_screen.dart';
-import '../order_history_widget.dart';
 import '../../utils/alerts.dart';
-import 'package:sampah_online/screens/map_selection_screen.dart';
-import 'dart:math' as math;
 import '../../payment.dart';
 import '../../midtrans_payment_webview.dart';
+import '../order_history_widget.dart';
+import '../profile_screen.dart';
+import '../map_selection_screen.dart';
 
 class UserHomeScreen extends StatefulWidget {
   const UserHomeScreen({super.key});
@@ -22,96 +22,26 @@ class UserHomeScreen extends StatefulWidget {
 }
 
 class _UserHomeScreenState extends State<UserHomeScreen> {
-  int _selectedIndex = 0;
+  final OrderService _orderService = OrderService();
   StreamSubscription<firestore.QuerySnapshot>? _orderSub;
-  Map<String, String> _orderStatuses = {}; // Track status per order ID
+  final Map<String, String> _orderStatuses = {}; // track per order
   bool _dialogOpen = false;
   DateTime? _lastNotifyAt;
   String? _lastNotifiedOrderId;
+
+  // sample fixed point used for price/distance calc (Monas)
   final firestore.GeoPoint _monasLocation = const firestore.GeoPoint(
     -6.175392,
     106.827153,
   );
-  double _calculateDistance(
-    firestore.GeoPoint point1,
-    firestore.GeoPoint point2,
-  ) {
-    const double R = 6371;
 
-    double lat1 = point1.latitude * (3.14159265359 / 180);
-    double lon1 = point1.longitude * (3.14159265359 / 180);
-    double lat2 = point2.latitude * (3.14159265359 / 180);
-    double lon2 = point2.longitude * (3.14159265359 / 180);
-
-    double dlon = lon2 - lon1;
-    double dlat = lat2 - lat1;
-
-    double a =
-        math.sin(dlat / 2) * math.sin(dlat / 2) +
-        math.cos(lat1) *
-            math.cos(lat2) *
-            math.sin(dlon / 2) *
-            math.sin(dlon / 2);
-    double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
-    return R * c;
-  }
-
-  final List<Widget> _pages = [
-    const _BerandaPage(),
-    const _RiwayatPage(),
-    const _ProfilPage(),
-  ];
-
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-  }
+  static const double _pricePerKm = 2000; // example
+  static const double _pricePerKg = 2000; // example
 
   @override
   void initState() {
     super.initState();
-    final auth = Provider.of<AuthService>(context, listen: false);
-    final uid = auth.currentUser?.uid;
-    if (uid != null) {
-      _orderSub = firestore.FirebaseFirestore.instance
-          .collection('orders')
-          .where(
-            'status',
-            whereIn: [
-              'waiting',
-              'accepted',
-              'on_the_way',
-              'arrived',
-              'pickup_confirmed_by_driver',
-            ],
-          )
-          .snapshots()
-          .listen(
-            (snap) {
-              for (var doc in snap.docs) {
-                final id = doc.id;
-                final data = doc.data();
-                final status = (data['status'] as String?) ?? '';
-                final userId = data['user_id'] as String?;
-                if (userId != uid) continue;
-                final previousStatus = _orderStatuses[id];
-
-                if (previousStatus != status) {
-                  _orderStatuses[id] = status;
-                  _handleStatusChange(
-                    id,
-                    status,
-                    Map<String, dynamic>.from(data),
-                  );
-                }
-              }
-            },
-            onError: (e) {
-              debugPrint('Order subscription error: $e');
-            },
-          );
-    }
+    _subscribeOrderStream();
   }
 
   @override
@@ -120,7 +50,84 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     super.dispose();
   }
 
-  void _handleStatusChange(
+  void _subscribeOrderStream() {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final uid = auth.currentUser?.uid;
+    if (uid == null) return;
+    bool isInitialLoad = true;
+
+    _orderSub = firestore.FirebaseFirestore.instance
+        .collection('orders')
+        .where(
+          'status',
+          whereIn: [
+            'waiting',
+            'accepted',
+            'on_the_way',
+            'arrived',
+            'pickup_confirmed_by_driver',
+            'paid', // include paid so user sees it if needed
+            'completed',
+          ],
+        )
+        .snapshots()
+        .listen(
+          (snap) {
+            if (isInitialLoad) {
+              for (var doc in snap.docs) {
+                final id = doc.id;
+                final data = doc.data();
+                final status = (data['status'] as String?) ?? '';
+                _orderStatuses[id] = status;
+              }
+              // next snapshots are "real" updates
+              isInitialLoad = false;
+              return;
+            }
+            for (var doc in snap.docs) {
+              final id = doc.id;
+              final data = doc.data();
+              final status = (data['status'] as String?) ?? '';
+              final userId = data['user_id'] as String?;
+              if (userId != uid) continue; // only care about this user's orders
+
+              final previousStatus = _orderStatuses[id];
+              if (previousStatus != status) {
+                _orderStatuses[id] = status;
+                _handleStatusChange(
+                  id,
+                  status,
+                  Map<String, dynamic>.from(data),
+                );
+              }
+            }
+          },
+          onError: (e) {
+            debugPrint('Order subscription error: $e');
+          },
+        );
+  }
+
+  double _calculateDistance(firestore.GeoPoint a, firestore.GeoPoint b) {
+    // Haversine formula
+    const R = 6371; // km
+    final lat1 = a.latitude * (math.pi / 180);
+    final lon1 = a.longitude * (math.pi / 180);
+    final lat2 = b.latitude * (math.pi / 180);
+    final lon2 = b.longitude * (math.pi / 180);
+    final dlat = lat2 - lat1;
+    final dlon = lon2 - lon1;
+    final aa =
+        math.sin(dlat / 2) * math.sin(dlat / 2) +
+        math.cos(lat1) *
+            math.cos(lat2) *
+            math.sin(dlon / 2) *
+            math.sin(dlon / 2);
+    final c = 2 * math.atan2(math.sqrt(aa), math.sqrt(1 - aa));
+    return R * c; // km
+  }
+
+  Future<void> _handleStatusChange(
     String orderId,
     String status,
     Map<String, dynamic> data,
@@ -130,130 +137,415 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     final now = DateTime.now();
     if (_lastNotifyAt != null && _lastNotifiedOrderId == orderId) {
       final diff = now.difference(_lastNotifyAt!);
-      if (diff < const Duration(seconds: 3)) {
-        return;
-      }
+      if (diff < const Duration(seconds: 3)) return; // debounce
     }
     _lastNotifyAt = now;
     _lastNotifiedOrderId = orderId;
 
-    // Get notification service
     final notificationService = Provider.of<NotificationService>(
       context,
       listen: false,
     );
 
-    if (status == 'accepted') {
-      await notificationService.showLocal(
-        id: orderId.hashCode,
-        title: 'Driver Ditemukan',
-        body: 'Driver telah menerima pesanan Anda.',
-      );
-      if (_dialogOpen) return;
-      _dialogOpen = true;
-      showAppDialog(
-        context,
-        title: 'Driver Ditemukan',
-        message:
-            'Driver ${data['driver_id'] ?? ''} telah menerima pesanan Anda.',
-        type: AlertType.info,
-      ).then((_) {
-        if (mounted) setState(() => _dialogOpen = false);
-      });
-    } else if (status == 'on_the_way') {
-      await notificationService.showLocal(
-        id: orderId.hashCode + 1,
-        title: 'Driver Menuju Lokasi',
-        body: 'Driver sedang menuju lokasi Anda.',
-      );
-      showAppSnackBar(
-        context,
-        'Driver sedang menuju lokasi Anda',
-        type: AlertType.info,
-      );
-    } else if (status == 'arrived') {
-      await notificationService.showLocal(
-        id: orderId.hashCode + 2,
-        title: 'Driver Telah Sampai',
-        body: 'Driver telah sampai di lokasi. Silakan siapkan sampah.',
-      );
-      if (_dialogOpen) return;
-      _dialogOpen = true;
-      showAppDialog(
-        context,
-        title: 'Driver Sampai',
-        message: 'Driver telah sampai di lokasi. Silakan siapkan sampah.',
-        type: AlertType.info,
-      ).then((_) {
-        if (mounted) setState(() => _dialogOpen = false);
-      });
-    } else if (status == 'pickup_confirmed_by_driver') {
-      await notificationService.showLocal(
-        id: orderId.hashCode + 3,
-        title: 'Konfirmasi Pengambilan',
-        body:
-            'Driver telah mengkonfirmasi pengambilan sampah. Harap konfirmasi.',
-      );
-      if (_dialogOpen) return;
-      _dialogOpen = true;
-      showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Konfirmasi Pengambilan'),
-          content: const Text(
-            'Driver telah mengkonfirmasi pengambilan sampah. Apakah Anda setuju?',
+    switch (status) {
+      case 'accepted':
+        await notificationService.showLocal(
+          id: orderId.hashCode,
+          title: 'Driver Ditemukan',
+          body: 'Driver telah menerima pesanan Anda.',
+        );
+        if (_dialogOpen) return;
+        _dialogOpen = true;
+        showAppDialog(
+          context,
+          title: 'Driver Ditemukan',
+          message:
+              'Driver ${data['driver_id'] ?? ''} telah menerima pesanan Anda.',
+          type: AlertType.info,
+        ).then((_) {
+          if (mounted) setState(() => _dialogOpen = false);
+        });
+        break;
+
+      case 'on_the_way':
+        await notificationService.showLocal(
+          id: orderId.hashCode + 1,
+          title: 'Driver Menuju Lokasi',
+          body: 'Driver sedang menuju lokasi Anda.',
+        );
+        showAppSnackBar(
+          context,
+          'Driver sedang menuju lokasi Anda',
+          type: AlertType.info,
+        );
+        break;
+
+      case 'arrived':
+        await notificationService.showLocal(
+          id: orderId.hashCode + 2,
+          title: 'Driver Telah Sampai',
+          body: 'Driver telah sampai di lokasi. Silakan siapkan sampah.',
+        );
+        if (_dialogOpen) return;
+        _dialogOpen = true;
+        showAppDialog(
+          context,
+          title: 'Driver Sampai',
+          message: 'Driver telah sampai di lokasi. Silakan siapkan sampah.',
+          type: AlertType.info,
+        ).then((_) {
+          if (mounted) setState(() => _dialogOpen = false);
+        });
+        break;
+
+      case 'pickup_confirmed_by_driver':
+        await notificationService.showLocal(
+          id: orderId.hashCode + 3,
+          title: 'Konfirmasi Pengambilan',
+          body:
+              'Driver telah mengkonfirmasi pengambilan sampah. Harap konfirmasi.',
+        );
+        if (_dialogOpen) return;
+        _dialogOpen = true;
+        showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Konfirmasi Pengambilan'),
+            content: const Text(
+              'Driver telah mengkonfirmasi pengambilan sampah. Apakah Anda setuju?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  if (mounted) setState(() => _dialogOpen = false);
+                },
+                child: const Text('Tolak'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  Navigator.of(ctx).pop();
+                  if (!mounted) return;
+                  setState(() => _dialogOpen = false);
+                  await firestore.FirebaseFirestore.instance
+                      .collection('orders')
+                      .doc(orderId)
+                      .update({'status': 'completed'});
+                  showAppSnackBar(
+                    context,
+                    'Pengambilan sampah berhasil dikonfirmasi!',
+                    type: AlertType.success,
+                  );
+                },
+                child: const Text('Setuju'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(ctx).pop();
-                if (mounted) setState(() => _dialogOpen = false);
-              },
-              child: const Text('Tolak'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                Navigator.of(ctx).pop();
-                if (mounted) setState(() => _dialogOpen = false);
-                // Update status to completed
-                await firestore.FirebaseFirestore.instance
-                    .collection('orders')
-                    .doc(orderId)
-                    .update({'status': 'completed'});
-                showAppSnackBar(
-                  context,
-                  'Pengambilan sampah berhasil dikonfirmasi!',
-                  type: AlertType.success,
-                );
-              },
-              child: const Text('Setuju'),
-            ),
-          ],
-        ),
-      ).then((_) {
-        if (mounted) setState(() => _dialogOpen = false);
-      });
-    } else if (status == 'completed') {
-      await notificationService.showLocal(
-        id: orderId.hashCode + 4,
-        title: 'Pesanan Selesai',
-        body: 'Terima kasih! Sampah telah diambil.',
-      );
-      if (_dialogOpen) return;
-      _dialogOpen = true;
-      showAppDialog(
-        context,
-        title: 'Selesai',
-        message: 'Terima kasih! Sampah telah diambil.',
-        type: AlertType.success,
-      ).then((_) {
-        if (mounted) setState(() => _dialogOpen = false);
-      });
+        );
+        break;
+
+      case 'paid':
+      case 'settlement':
+        // server webhook sets order to paid/settlement → beri info ke user
+        await notificationService.showLocal(
+          id: orderId.hashCode + 10,
+          title: 'Pembayaran Berhasil',
+          body: 'Pembayaran telah sukses. Order akan diproses.',
+        );
+        showAppSnackBar(
+          context,
+          'Pembayaran sukses. Menunggu driver mengambil order.',
+          type: AlertType.success,
+        );
+        break;
+
+      case 'completed':
+        await notificationService.showLocal(
+          id: orderId.hashCode + 4,
+          title: 'Pesanan Selesai',
+          body: 'Terima kasih! Sampah telah diambil.',
+        );
+        if (_dialogOpen) return;
+        _dialogOpen = true;
+        showAppDialog(
+          context,
+          title: 'Selesai',
+          message: 'Terima kasih! Sampah telah diambil.',
+          type: AlertType.success,
+        ).then((_) {
+          if (mounted) setState(() => _dialogOpen = false);
+        });
+        break;
+
+      case 'payment_failed':
+        showAppSnackBar(
+          context,
+          'Pembayaran gagal. Silakan coba lagi.',
+          type: AlertType.error,
+        );
+        break;
+
+      default:
+        // ignore unknown statuses
+        break;
     }
   }
 
+  // ===================== CREATE ORDER FLOW (final) =====================
+  Future<void> _startCreateOrderFlow() async {
+    final result = await Navigator.of(context).push<Map<String, dynamic>>(
+      MaterialPageRoute(builder: (_) => const MapSelectionScreen()),
+    );
+
+    if (result == null) return; // user canceled
+
+    final firestore.GeoPoint selectedLocation =
+        result['location'] as firestore.GeoPoint;
+    final String selectedAddress = result['address'] as String;
+
+    final distanceKm = _calculateDistance(_monasLocation, selectedLocation);
+    final addressCtl = TextEditingController(text: selectedAddress);
+    final distanceCtl = TextEditingController(
+      text: distanceKm.toStringAsFixed(2),
+    );
+    final weightCtl = TextEditingController();
+    final priceCtl = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx2, setStateDialog) {
+          void _updatePrice() {
+            final distance = double.tryParse(distanceCtl.text) ?? 0;
+            final weight = double.tryParse(weightCtl.text) ?? 0;
+            final price = (distance * _pricePerKm) + (weight * _pricePerKg);
+            priceCtl.text = price.toStringAsFixed(0);
+          }
+
+          return AlertDialog(
+            title: Row(
+              children: const [
+                Icon(Icons.add_location_alt, color: Colors.green),
+                SizedBox(width: 8),
+                Expanded(child: Text('Buat Order Penjemputan')),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                children: [
+                  TextField(
+                    controller: addressCtl,
+                    decoration: const InputDecoration(labelText: 'Alamat'),
+                  ),
+                  TextField(
+                    controller: distanceCtl,
+                    decoration: const InputDecoration(labelText: 'Jarak (km)'),
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => _updatePrice(),
+                  ),
+                  TextField(
+                    controller: weightCtl,
+                    decoration: const InputDecoration(labelText: 'Berat (kg)'),
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => _updatePrice(),
+                  ),
+                  TextField(
+                    controller: priceCtl,
+                    decoration: const InputDecoration(labelText: 'Harga (Rp)'),
+                    keyboardType: TextInputType.number,
+                    readOnly: true,
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Batal'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  final address = addressCtl.text.trim();
+                  final distance = double.tryParse(distanceCtl.text) ?? 0;
+                  final weight = double.tryParse(weightCtl.text) ?? 0;
+                  final price = double.tryParse(priceCtl.text) ?? 0;
+
+                  if (address.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Alamat harus diisi'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return;
+                  }
+
+                  // ambil user info
+                  final auth = Provider.of<AuthService>(context, listen: false);
+                  final uid = auth.currentUser?.uid ?? '';
+                  final name = auth.currentUser?.displayName ?? 'User';
+                  final email = auth.currentUser?.email ?? 'user@example.com';
+
+                  // 1) generate orderId unik (dipakai untuk Firestore & Midtrans)
+                  final orderId =
+                      'ORDER_${DateTime.now().millisecondsSinceEpoch}_$uid';
+
+                  // 2) simpan order awal ke Firestore dengan status pending_payment
+                  try {
+                    await _orderService.createOrder(
+                      orderId: orderId,
+                      userId: uid,
+                      weight: weight,
+                      distance: distance,
+                      price: price,
+                      address: address,
+                      location: selectedLocation,
+                      photoUrls: [],
+                      status: 'pending_payment',
+                    );
+                  } catch (e) {
+                    if (!mounted) return;
+                    showAppSnackBar(
+                      context,
+                      'Gagal menyimpan order: $e',
+                      type: AlertType.error,
+                    );
+                    return;
+                  }
+
+                  // 3) minta Snap URL dari backend
+                  final snapUrl = await getMidtransSnapUrl(
+                    orderId: orderId,
+                    grossAmount: price.toInt(),
+                    name: name,
+                    email: email,
+                  );
+
+                  if (snapUrl == null) {
+                    // tandai order gagal diproses pembayaran
+                    try {
+                      await _orderService.updateStatus(
+                        orderId,
+                        'payment_failed',
+                      );
+                    } catch (_) {}
+                    if (!mounted) return;
+                    showAppSnackBar(
+                      context,
+                      'Gagal mendapatkan link pembayaran. Silakan coba lagi.',
+                      type: AlertType.error,
+                    );
+                    return;
+                  }
+
+                  // 4) buka WebView Midtrans
+                  Navigator.of(ctx).pop(); // tutup dialog sebelum ke webview
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => MidtransPaymentWebView(
+                        snapUrl: snapUrl,
+                        orderId: orderId,
+                        onPaymentSuccess: () async {
+                          // Client-side UX: beritahu user, tapi jangan update server
+                          if (!mounted) return;
+                          showAppSnackBar(
+                            context,
+                            'Sukses terdeteksi (client). Menunggu konfirmasi server...',
+                            type: AlertType.info,
+                          );
+                        },
+                      ),
+                    ),
+                  );
+                },
+                child: const Text('Bayar'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _saveOrderToFirestore({
+    required String address,
+    required double distance,
+    required double weight,
+    required double price,
+    required firestore.GeoPoint location,
+    String status = 'waiting',
+  }) async {
+    try {
+      final auth = Provider.of<AuthService>(context, listen: false);
+      final uid = auth.currentUser?.uid;
+      if (uid == null) throw Exception('User belum login');
+      final String orderId = DateTime.now().millisecondsSinceEpoch.toString();
+      await _orderService.createOrder(
+        orderId: orderId,
+        userId: uid,
+        weight: weight,
+        distance: distance,
+        price: price,
+        address: address,
+        location: location,
+        photoUrls: [],
+        status: status,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Pesanan berhasil disimpan ke riwayat!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal menyimpan pesanan: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // ===================== UI =====================
+  final List<Map<String, Object>> menuItems = [
+    {
+      'title': 'Jadwal Penjemputan',
+      'subtitle': 'Lihat jadwal penjemputan sampah Anda',
+      'icon': Icons.recycling,
+      'color1': const Color(0xFFD9F2D9),
+      'color2': const Color(0xFFC1EAC1),
+    },
+    {
+      'title': 'Poin & Reward',
+      'subtitle': 'Lihat jumlah poin yang telah kamu kumpulkan',
+      'icon': Icons.star_rate,
+      'color1': const Color(0xFFFFE3B3),
+      'color2': const Color(0xFFFFD580),
+    },
+    {
+      'title': 'Edukasi Daur Ulang',
+      'subtitle': 'Pelajari cara mengelola sampah dengan benar',
+      'icon': Icons.book_rounded,
+      'color1': const Color(0xFFCCE1FF),
+      'color2': const Color(0xFFB3D4FF),
+    },
+  ];
+
+  int _selectedIndex = 0;
+  void _onItemTapped(int index) => setState(() => _selectedIndex = index);
+
   @override
   Widget build(BuildContext context) {
+    final pages = [
+      _buildBeranda(),
+      _buildRiwayat(),
+      const ProfileScreen(role: 'user'),
+    ];
+
     return Scaffold(
       backgroundColor: const Color(0xFFF3F6F4),
       appBar: AppBar(
@@ -269,12 +561,11 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
           ),
         ),
         backgroundColor: Colors.green[700],
-        elevation: 2,
       ),
-      body: _pages[_selectedIndex],
+      body: pages[_selectedIndex],
       floatingActionButton: _selectedIndex == 0
           ? FloatingActionButton.extended(
-              onPressed: () => _showCreateOrderDialog(context),
+              onPressed: _startCreateOrderFlow,
               label: const Text(
                 'Buat Order',
                 style: TextStyle(
@@ -315,258 +606,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     );
   }
 
-  void _showCreateOrderDialog(BuildContext context) async {
-    final result = await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (ctx) => const MapSelectionScreen()));
-    if (result == null) {
-      return;
-    }
-    final firestore.GeoPoint selectedLocation = result['location'];
-    final String selectedAddress = result['address'];
-
-    final double calculatedDistance = _calculateDistance(
-      _monasLocation,
-      selectedLocation,
-    );
-    final addressCtl = TextEditingController(text: selectedAddress);
-    final distanceCtl = TextEditingController(
-      text: calculatedDistance.toStringAsFixed(2),
-    );
-    final weightCtl = TextEditingController();
-    final priceCtl = TextEditingController();
-
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx2, setStateDialog) {
-          void _updatePrice() {
-            final distance = double.tryParse(distanceCtl.text) ?? 0;
-            final weight = double.tryParse(weightCtl.text) ?? 0;
-            final price = (distance * 2000) + (weight * 2000);
-            priceCtl.text = price.toStringAsFixed(0);
-          }
-
-          return AlertDialog(
-            title: Row(
-              children: const [
-                Icon(Icons.add_location_alt, color: Colors.green),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Buat Order Penjemputan',
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            content: SingleChildScrollView(
-              child: Column(
-                children: [
-                  TextField(
-                    controller: addressCtl,
-                    decoration: const InputDecoration(labelText: 'Alamat'),
-                  ),
-                  TextField(
-                    controller: distanceCtl,
-                    decoration: const InputDecoration(
-                      labelStyle: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                      labelText:
-                          'Jarak penjemputan ke pembuangan akhir (2000/KM)',
-                    ),
-                    onChanged: (_) => _updatePrice(),
-                  ),
-                  TextField(
-                    controller: weightCtl,
-                    decoration: const InputDecoration(
-                      labelText: 'Berat (2000/kg)',
-                    ),
-                    keyboardType: TextInputType.number,
-                    onChanged: (_) => _updatePrice(),
-                  ),
-                  TextField(
-                    controller: priceCtl,
-                    decoration: const InputDecoration(
-                      labelText: 'Harga (yang harus anda bayar)',
-                    ),
-                    keyboardType: TextInputType.number,
-                    readOnly: true,
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('Batal'),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  final address = addressCtl.text.trim();
-                  final distance = double.tryParse(distanceCtl.text) ?? 0;
-                  final weight = double.tryParse(weightCtl.text) ?? 0;
-                  final price = double.tryParse(priceCtl.text) ?? 0;
-
-                  if (address.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Alamat harus diisi'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                    return;
-                  }
-
-                  Navigator.of(ctx).pop();
-                  await _saveOrderToFirestore(
-                    context: context,
-                    address: address,
-                    distance: distance,
-                    weight: weight,
-                    price: price,
-                    location: selectedLocation,
-                  );
-                },
-                child: const Text('Simpan'),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  final address = addressCtl.text.trim();
-                  final distance = double.tryParse(distanceCtl.text) ?? 0;
-                  final weight = double.tryParse(weightCtl.text) ?? 0;
-                  final price = double.tryParse(priceCtl.text) ?? 0;
-
-                  if (address.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Alamat harus diisi'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                    return;
-                  }
-
-                  // Ambil data user
-                  final auth = Provider.of<AuthService>(context, listen: false);
-                  final uid = auth.currentUser?.uid ?? '';
-                  final name = auth.currentUser?.displayName ?? 'User';
-                  final email = auth.currentUser?.email ?? 'user@email.com';
-
-                  // Buat order_id unik
-                  final orderId =
-                      'ORDER_${DateTime.now().millisecondsSinceEpoch}_$uid';
-
-                  // Request Snap URL ke backend
-                  final snapUrl = await getMidtransSnapUrl(
-                    orderId: orderId,
-                    grossAmount: price.toInt(),
-                    name: name,
-                    email: email,
-                  );
-
-                  if (snapUrl != null) {
-                    Navigator.of(ctx).pop();
-                    // Buka WebView Snap Midtrans
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            MidtransPaymentWebView(snapUrl: snapUrl),
-                      ),
-                    );
-                  } else {
-                    showAppSnackBar(
-                      context,
-                      'Gagal mendapatkan link pembayaran',
-                    );
-                  }
-                },
-                child: const Text('Bayar'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Future<void> _saveOrderToFirestore({
-    required BuildContext context,
-    required String address,
-    required double distance,
-    required double weight,
-    required double price,
-    required firestore.GeoPoint location,
-  }) async {
-    try {
-      final auth = Provider.of<AuthService>(context, listen: false);
-      final uid = auth.currentUser?.uid;
-      if (uid == null) throw Exception('User belum login');
-
-      final orderService = OrderService();
-      final orderId = await orderService.createOrder(
-        userId: uid,
-        weight: weight,
-        distance: distance,
-        price: price,
-        address: address,
-        location: location,
-        photoUrls: [],
-      );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Pesanan berhasil dibuat!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Gagal membuat pesanan: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-}
-
-// BERANDA
-class _BerandaPage extends StatelessWidget {
-  const _BerandaPage();
-
-  @override
-  Widget build(BuildContext context) {
-    final menuItems = [
-      {
-        'title': 'Jadwal Penjemputan',
-        'subtitle': 'Lihat jadwal penjemputan sampah Anda',
-        'icon': Icons.recycling,
-        'color1': const Color(0xFFD9F2D9),
-        'color2': const Color(0xFFC1EAC1),
-      },
-      {
-        'title': 'Poin & Reward',
-        'subtitle': 'Lihat jumlah poin yang telah kamu kumpulkan',
-        'icon': Icons.star_rate,
-        'color1': const Color(0xFFFFE3B3),
-        'color2': const Color(0xFFFFD580),
-      },
-      {
-        'title': 'Edukasi Daur Ulang',
-        'subtitle': 'Pelajari cara mengelola sampah dengan benar',
-        'icon': Icons.book_rounded,
-        'color1': const Color(0xFFCCE1FF),
-        'color2': const Color(0xFFB3D4FF),
-      },
-    ];
-
+  Widget _buildBeranda() {
     return Padding(
       padding: const EdgeInsets.all(20.0),
       child: Column(
@@ -599,13 +639,11 @@ class _BerandaPage extends StatelessWidget {
                     icon: item['icon'] as IconData,
                     color1: item['color1'] as Color,
                     color2: item['color2'] as Color,
-                    onTap: () {
-                      showAppSnackBar(
-                        context,
-                        'Navigasi ke ${item['title']}',
-                        type: AlertType.info,
-                      );
-                    },
+                    onTap: () => showAppSnackBar(
+                      context,
+                      'Navigasi ke ${item['title']}',
+                      type: AlertType.info,
+                    ),
                   ),
                 );
               },
@@ -615,14 +653,8 @@ class _BerandaPage extends StatelessWidget {
       ),
     );
   }
-}
 
-//  RIWAYAT
-class _RiwayatPage extends StatelessWidget {
-  const _RiwayatPage();
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildRiwayat() {
     final auth = Provider.of<AuthService>(context, listen: false);
     final currentUserId = auth.currentUser?.uid ?? '';
     return Padding(
@@ -632,17 +664,6 @@ class _RiwayatPage extends StatelessWidget {
   }
 }
 
-//  PROFIL
-class _ProfilPage extends StatelessWidget {
-  const _ProfilPage();
-
-  @override
-  Widget build(BuildContext context) {
-    return const ProfileScreen(role: 'user');
-  }
-}
-
-//  MENU CARD
 class _MenuCard extends StatelessWidget {
   final String title;
   final String subtitle;

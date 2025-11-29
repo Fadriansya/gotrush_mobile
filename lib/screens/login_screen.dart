@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../services/auth_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -16,15 +17,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _handleLogin(AuthService auth) async {
     setState(() => isLoading = true);
+
     try {
-      final userCredential = await auth.login(email, password);
+      final userCredential = await auth.login(email.trim(), password);
       final uid = userCredential?.user?.uid;
       if (uid != null) {
         final doc = await FirebaseFirestore.instance
             .collection('users')
             .doc(uid)
             .get();
-        // Jika dokumen user tidak ditemukan, beri opsi untuk mendaftar
         if (!doc.exists) {
           await _showErrorDialog(
             title: 'Akun tidak ditemukan',
@@ -48,7 +49,7 @@ class _LoginScreenState extends State<LoginScreen> {
           Navigator.pushReplacementNamed(context, '/admin');
         } else {
           await _showErrorDialog(
-            title: 'akses ditolak',
+            title: 'Akses ditolak',
             message:
                 'Akun ini tidak memiliki role yang valid. Ingin mendaftar ulang?',
             actionLabel: 'Daftar',
@@ -57,11 +58,31 @@ class _LoginScreenState extends State<LoginScreen> {
           return;
         }
       }
+    } on FirebaseAuthException catch (e) {
+      String message;
+      switch (e.code) {
+        case 'wrong-password':
+          message = 'Password salah — silakan coba lagi.';
+        case 'user-not-found':
+          message = 'Email belum terdaftar. Coba daftar terlebih dahulu.';
+        case 'user-disabled':
+          message = 'Akun dinonaktifkan. Hubungi admin.';
+        case 'too-many-requests':
+          message = 'Terlalu banyak percobaan. Coba lagi nanti.';
+        case 'invalid-email':
+          message = 'Format email tidak valid.';
+        case 'network-request-failed':
+          message = 'Gagal terhubung ke jaringan. Periksa koneksi internetmu.';
+        default:
+          message = 'Login gagal: ${e.message ?? e.code}';
+      }
+
+      await _showErrorDialog(title: 'Login gagal', message: message);
     } catch (e) {
-      // Tampilkan dialog error yang lebih jelas
       await _showErrorDialog(title: 'Login gagal', message: e.toString());
+    } finally {
+      if (mounted) setState(() => isLoading = false);
     }
-    setState(() => isLoading = false);
   }
 
   Future<void> _showErrorDialog({
@@ -70,7 +91,6 @@ class _LoginScreenState extends State<LoginScreen> {
     String? actionLabel,
     VoidCallback? action,
   }) async {
-    // Pastikan loading dimatikan sebelum dialog muncul
     if (mounted) setState(() => isLoading = false);
 
     return showDialog<void>(
