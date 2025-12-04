@@ -1,14 +1,15 @@
+// driver_home.dart
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:sampah_online/screens/driver/driver_profile.dart';
 import 'package:sampah_online/welcome_screen.dart';
 import 'dart:async';
 import 'package:geolocator/geolocator.dart';
 import '../../services/order_service.dart';
 import '../../services/auth_service.dart';
 import '../../utils/alerts.dart';
-import '../profile_screen.dart';
 import '../order_history_widget.dart';
 import '/screens/driver_map_tracking_screen.dart';
 
@@ -54,7 +55,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
     _orderSub = FirebaseFirestore.instance
         .collection('orders')
-        .where('status', isEqualTo: 'waiting')
+        .where('status', whereIn: ["payment_success", "waiting"])
         .snapshots()
         .listen((snapshot) {
           if (snapshot.docs.isEmpty) return;
@@ -551,9 +552,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   color: Colors.purple,
                   onTap: () {
                     Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const ProfileScreen(role: 'driver'),
-                      ),
+                      MaterialPageRoute(builder: (_) => const DriverProfile()),
                     );
                   },
                 ),

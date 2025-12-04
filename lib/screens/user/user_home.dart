@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
+import 'package:sampah_online/screens/user/user_profile.dart';
 import '../../services/auth_service.dart';
 import '../../services/order_service.dart';
 import '../../services/notification_service.dart';
@@ -11,7 +12,6 @@ import '../../utils/alerts.dart';
 import '../../payment.dart';
 import '../../midtrans_payment_webview.dart';
 import '../order_history_widget.dart';
-import '../profile_screen.dart';
 import '../map_selection_screen.dart';
 
 class UserHomeScreen extends StatefulWidget {
@@ -401,7 +401,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                       address: address,
                       location: selectedLocation,
                       photoUrls: [],
-                      status: 'pending_payment',
+                      status: 'waiting',
                     );
                   } catch (e) {
                     if (!mounted) return;
@@ -432,7 +432,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                     if (!mounted) return;
                     showAppSnackBar(
                       context,
-                      'Gagal mendapatkan link pembayaran. Silakan coba lagi.',
+                      'Gagal mendapatkan link pembayaran. Silakan coba lagi',
                       type: AlertType.error,
                     );
                     return;
@@ -446,12 +446,15 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                         snapUrl: snapUrl,
                         orderId: orderId,
                         onPaymentSuccess: () async {
-                          // Client-side UX: beritahu user, tapi jangan update server
+                          await firestore.FirebaseFirestore.instance
+                              .collection('orders')
+                              .doc(orderId)
+                              .update({'status': 'payment_success'});
                           if (!mounted) return;
                           showAppSnackBar(
                             context,
-                            'Sukses terdeteksi (client). Menunggu konfirmasi server...',
-                            type: AlertType.info,
+                            'PEMBAYARAN BERHASIL! Silakan tunggu driver mengambil order.',
+                            type: AlertType.success,
                           );
                         },
                       ),
@@ -540,11 +543,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final pages = [
-      _buildBeranda(),
-      _buildRiwayat(),
-      const ProfileScreen(role: 'user'),
-    ];
+    final pages = [_buildBeranda(), _buildRiwayat(), const UserProfile()];
 
     return Scaffold(
       backgroundColor: const Color(0xFFF3F6F4),
