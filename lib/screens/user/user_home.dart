@@ -1,3 +1,4 @@
+// user_home.dart
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -13,6 +14,7 @@ import '../../payment.dart';
 import '../../midtrans_payment_webview.dart';
 import '../order_history_widget.dart';
 import '../map_selection_screen.dart';
+import 'pickup_schedule_screen.dart';
 
 class UserHomeScreen extends StatefulWidget {
   const UserHomeScreen({super.key});
@@ -310,6 +312,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     );
     final weightCtl = TextEditingController();
     final priceCtl = TextEditingController();
+    DateTime? selectedDate;
 
     await showDialog<void>(
       context: context,
@@ -354,6 +357,27 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                     decoration: const InputDecoration(labelText: 'Harga (Rp)'),
                     keyboardType: TextInputType.number,
                     readOnly: true,
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: ctx,
+                        initialDate: DateTime.now().add(
+                          const Duration(days: 1),
+                        ),
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 30)),
+                      );
+                      if (picked != null) {
+                        setStateDialog(() => selectedDate = picked);
+                      }
+                    },
+                    child: Text(
+                      selectedDate == null
+                          ? 'Pilih Tanggal Penjemputan'
+                          : 'Tanggal: ${selectedDate!.toLocal().toString().split(' ')[0]}',
+                    ),
                   ),
                 ],
               ),
@@ -402,6 +426,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                       location: selectedLocation,
                       photoUrls: [],
                       status: 'waiting',
+                      pickupDate: selectedDate,
                     );
                   } catch (e) {
                     if (!mounted) return;
@@ -638,11 +663,21 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                     icon: item['icon'] as IconData,
                     color1: item['color1'] as Color,
                     color2: item['color2'] as Color,
-                    onTap: () => showAppSnackBar(
-                      context,
-                      'Navigasi ke ${item['title']}',
-                      type: AlertType.info,
-                    ),
+                    onTap: () {
+                      if (item['title'] == 'Jadwal Penjemputan') {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const PickupScheduleScreen(),
+                          ),
+                        );
+                      } else {
+                        showAppSnackBar(
+                          context,
+                          'Navigasi ke ${item['title']}',
+                          type: AlertType.info,
+                        );
+                      }
+                    },
                   ),
                 );
               },

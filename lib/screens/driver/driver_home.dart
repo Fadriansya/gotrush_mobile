@@ -11,7 +11,7 @@ import '../../services/order_service.dart';
 import '../../services/auth_service.dart';
 import '../../utils/alerts.dart';
 import '../order_history_widget.dart';
-import '/screens/driver_map_tracking_screen.dart';
+import 'driver_map_tracking_screen.dart';
 
 class DriverHomeScreen extends StatefulWidget {
   const DriverHomeScreen({super.key});
@@ -418,12 +418,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           "Dashboard Driver",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_none, color: Colors.white),
-            onPressed: () {},
-          ),
-        ],
       ),
 
       body: SingleChildScrollView(

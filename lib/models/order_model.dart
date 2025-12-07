@@ -1,3 +1,4 @@
+// order_model.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class OrderModel {
@@ -12,6 +13,7 @@ class OrderModel {
   final GeoPoint location;
   final List<String> photoUrls;
   final Timestamp createdAt;
+  final DateTime? pickupDate;
 
   OrderModel({
     required this.id,
@@ -25,6 +27,7 @@ class OrderModel {
     required this.location,
     required this.photoUrls,
     required this.createdAt,
+    this.pickupDate,
   });
 
   factory OrderModel.fromDoc(DocumentSnapshot doc) {
@@ -41,6 +44,9 @@ class OrderModel {
       location: d['location'],
       photoUrls: List<String>.from(d['photo_urls'] ?? []),
       createdAt: d['created_at'] ?? Timestamp.now(),
+      pickupDate: d['pickup_date'] != null
+          ? (d['pickup_date'] as Timestamp).toDate()
+          : null,
     );
   }
 
@@ -55,5 +61,6 @@ class OrderModel {
     'location': location,
     'photo_urls': photoUrls,
     'created_at': createdAt,
+    'pickup_date': pickupDate != null ? Timestamp.fromDate(pickupDate!) : null,
   };
 }

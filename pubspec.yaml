@@ -37,6 +37,7 @@ dependencies:
   firebase_storage: ^12.4.10
   shared_preferences: ^2.2.3
   cloud_firestore_platform_interface: ^6.0.4
+  firebase_app_check: ^0.3.2+10
   # Maps & Geo
   # google_maps_flutter: ^2.13.1
   geoflutterfire_plus: ^0.0.32

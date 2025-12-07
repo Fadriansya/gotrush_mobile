@@ -15,41 +15,48 @@ class DriverProfile extends StatefulWidget {
 
 class _DriverProfileState extends State<DriverProfile> {
   final _formKey = GlobalKey<FormState>();
+
   final _nameController = TextEditingController();
-  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
+
   final _currentPasswordController = TextEditingController();
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
-  bool _isOnline = false;
   bool _isLoading = false;
   bool _isUpdatingProfile = false;
   bool _isUpdatingPassword = false;
   bool _showPasswordFields = false;
+  bool _isGoogleUser = false;
 
   @override
   void initState() {
     super.initState();
-    _loadUserData();
+    _loadDriverData();
   }
 
   @override
   void dispose() {
     _nameController.dispose();
-    _emailController.dispose();
+    _phoneController.dispose();
     _currentPasswordController.dispose();
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadUserData() async {
+  Future<void> _loadDriverData() async {
     setState(() => _isLoading = true);
 
     try {
       final auth = Provider.of<AuthService>(context, listen: false);
       final user = auth.currentUser;
+
       if (user != null) {
+        _isGoogleUser = user.providerData.any(
+          (p) => p.providerId == "google.com",
+        );
+
         final doc = await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
@@ -58,634 +65,471 @@ class _DriverProfileState extends State<DriverProfile> {
         if (doc.exists) {
           final data = doc.data()!;
           _nameController.text = data['name'] ?? '';
-          _emailController.text = data['email'] ?? '';
-          _isOnline = data['status'] == 'online';
+          _phoneController.text = data['phone'] ?? '';
         }
       }
     } catch (e) {
-      if (mounted) {
-        showAppSnackBar(
-          context,
-          'Gagal memuat data profil: $e',
-          type: AlertType.error,
-        );
-      }
+      showAppSnackBar(
+        context,
+        'Gagal memuat data profil: $e',
+        type: AlertType.error,
+      );
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  Future<bool> _showConfirmationDialog({
+    required String title,
+    required String message,
+  }) async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          title: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          content: Text(message),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red[700]),
+              child: const Text("Batal", style: TextStyle(color: Colors.white)),
+              onPressed: () => Navigator.pop(context, false),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green[700],
+              ),
+              child: const Text(
+                "Lanjutkan",
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    return result ?? false;
+  }
+
   Future<void> _updateProfile() async {
+    if (_isUpdatingProfile) return;
     if (!_formKey.currentState!.validate()) return;
+
+    final confirm = await _showConfirmationDialog(
+      title: "Konfirmasi Perubahan",
+      message: "Yakin ingin memperbarui profil?",
+    );
+    if (!confirm) return;
 
     setState(() => _isUpdatingProfile = true);
 
     try {
-      final auth = Provider.of<AuthService>(context, listen: false);
-      final user = auth.currentUser;
-      if (user != null) {
-        // Update Firestore
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .update({
-              'name': _nameController.text.trim(),
-              'email': _emailController.text.trim(),
-            });
+      final user = FirebaseAuth.instance.currentUser!;
 
-        // Update Firebase Auth email if changed
-        if (_emailController.text.trim() != user.email) {
-          await user.updateEmail(_emailController.text.trim());
-        }
+      await user.updateDisplayName(_nameController.text.trim());
+      await FirebaseFirestore.instance.collection("users").doc(user.uid).update(
+        {
+          "name": _nameController.text.trim(),
+          "phone": _phoneController.text.trim(),
+        },
+      );
 
-        if (mounted) {
-          showAppSnackBar(
-            context,
-            'Profil berhasil diperbarui',
-            type: AlertType.success,
-          );
-        }
-      }
+      showAppSnackBar(
+        context,
+        "Profil berhasil diperbarui",
+        type: AlertType.success,
+      );
     } catch (e) {
-      if (mounted) {
-        showAppSnackBar(
-          context,
-          'Gagal memperbarui profil: $e',
-          type: AlertType.error,
-        );
-      }
+      showAppSnackBar(context, "Gagal memperbarui: $e", type: AlertType.error);
     } finally {
-      if (mounted) {
-        setState(() => _isUpdatingProfile = false);
-      }
+      setState(() => _isUpdatingProfile = false);
     }
   }
 
   Future<void> _updatePassword() async {
-    if (_newPasswordController.text != _confirmPasswordController.text) {
-      showAppSnackBar(
-        context,
-        'Password baru tidak cocok',
-        type: AlertType.error,
-      );
+    if (_isUpdatingPassword) return;
+    if (_isGoogleUser) return;
+
+    final confirm = await _showConfirmationDialog(
+      title: "Konfirmasi Ubah Password",
+      message: "Yakin ingin mengganti password?",
+    );
+    if (!confirm) return;
+
+    if (_currentPasswordController.text.isEmpty ||
+        _newPasswordController.text.isEmpty ||
+        _confirmPasswordController.text.isEmpty) {
+      showAppSnackBar(context, "Semua field wajib diisi");
+      return;
+    }
+
+    if (_newPasswordController.text.trim() !=
+        _confirmPasswordController.text.trim()) {
+      showAppSnackBar(context, "Password baru tidak sama");
       return;
     }
 
     setState(() => _isUpdatingPassword = true);
 
     try {
-      final auth = Provider.of<AuthService>(context, listen: false);
-      final user = auth.currentUser;
-      if (user != null && user.email != null) {
-        // Re-authenticate user
-        final credential = EmailAuthProvider.credential(
-          email: user.email!,
-          password: _currentPasswordController.text,
-        );
-        await user.reauthenticateWithCredential(credential);
+      final user = FirebaseAuth.instance.currentUser!;
+      final cred = EmailAuthProvider.credential(
+        email: user.email!,
+        password: _currentPasswordController.text.trim(),
+      );
 
-        // Update password
-        await user.updatePassword(_newPasswordController.text);
+      await user.reauthenticateWithCredential(cred);
+      await user.updatePassword(_newPasswordController.text.trim());
 
-        // Clear password fields
-        _currentPasswordController.clear();
-        _newPasswordController.clear();
-        _confirmPasswordController.clear();
-        setState(() => _showPasswordFields = false);
+      showAppSnackBar(
+        context,
+        "Password berhasil diganti",
+        type: AlertType.success,
+      );
 
-        if (mounted) {
-          showAppSnackBar(
-            context,
-            'Password berhasil diperbarui',
-            type: AlertType.success,
-          );
-        }
-      }
+      _currentPasswordController.clear();
+      _newPasswordController.clear();
+      _confirmPasswordController.clear();
+      setState(() => _showPasswordFields = false);
     } catch (e) {
-      if (mounted) {
-        showAppSnackBar(
-          context,
-          'Gagal memperbarui password: $e',
-          type: AlertType.error,
-        );
-      }
+      showAppSnackBar(
+        context,
+        "Gagal mengubah password: $e",
+        type: AlertType.error,
+      );
     } finally {
-      if (mounted) {
-        setState(() => _isUpdatingPassword = false);
-      }
-    }
-  }
-
-  Future<void> _toggleOnlineStatus(bool value) async {
-    try {
-      final auth = Provider.of<AuthService>(context, listen: false);
-      await auth.setDriverStatus(value ? 'online' : 'offline');
-      setState(() => _isOnline = value);
-
-      if (mounted) {
-        showAppSnackBar(
-          context,
-          value ? 'Status online diaktifkan' : 'Status offline diaktifkan',
-          type: AlertType.success,
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        showAppSnackBar(
-          context,
-          'Gagal mengubah status: $e',
-          type: AlertType.error,
-        );
-      }
+      setState(() => _isUpdatingPassword = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF2F8F3),
-      appBar: AppBar(
-        backgroundColor: Colors.green[800],
-        elevation: 0,
-        title: const Text(
-          "Profil Driver",
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-      ),
-      body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
-              ),
-            )
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Profile Header Card
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: Colors.green[700],
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.green.withAlpha((0.3 * 255).round()),
-                            blurRadius: 8,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
+      backgroundColor: const Color(0xFFF7FAF7),
+      body: SafeArea(
+        child: _isLoading
+            ? const Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
+                ),
+              )
+            : LayoutBuilder(
+                builder: (context, constraints) {
+                  final isSmall = constraints.maxWidth < 350;
+
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 20,
+                    ),
+                    child: Form(
+                      key: _formKey,
                       child: Column(
                         children: [
-                          CircleAvatar(
-                            radius: 40,
-                            backgroundColor: Colors.white,
-                            child: Icon(
-                              Icons.local_shipping,
-                              size: 48,
-                              color: Colors.green[700],
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            _nameController.text.isEmpty
-                                ? 'Driver'
-                                : _nameController.text,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
                           Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 8,
+                            width: double.infinity,
+                            padding: EdgeInsets.symmetric(
+                              vertical: isSmall ? 24 : 28,
                             ),
                             decoration: BoxDecoration(
-                              color: _isOnline
-                                  ? Colors.green[100]
-                                  : Colors.grey[100],
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  _isOnline
-                                      ? Icons.circle
-                                      : Icons.circle_outlined,
-                                  color: _isOnline ? Colors.green : Colors.grey,
-                                  size: 12,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  _isOnline ? 'Online' : 'Offline',
-                                  style: TextStyle(
-                                    color: _isOnline
-                                        ? Colors.green[800]
-                                        : Colors.grey[700],
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 24),
-
-                    // Online Status Toggle
-                    Card(
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.orange.withAlpha(
-                                  (0.1 * 255).round(),
-                                ),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Icon(
-                                Icons.wifi,
-                                color: Colors.orange[700],
-                                size: 24,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Status Online',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    _isOnline
-                                        ? 'Anda sedang online dan dapat menerima pesanan'
-                                        : 'Anda sedang offline dan tidak akan menerima pesanan',
-                                    style: TextStyle(
-                                      color: Colors.grey[600],
-                                      fontSize: 14,
-                                    ),
-                                  ),
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.green[700]!,
+                                  Colors.green[500]!,
                                 ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
                               ),
+                              borderRadius: BorderRadius.circular(22),
                             ),
-                            Switch(
-                              value: _isOnline,
-                              onChanged: _toggleOnlineStatus,
-                              activeColor: Colors.green[700],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 24),
-                    const Text(
-                      "Informasi Profil",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF2E7D32),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    // Name Field
-                    Card(
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: TextFormField(
-                          controller: _nameController,
-                          decoration: InputDecoration(
-                            labelText: 'Nama Lengkap',
-                            prefixIcon: Icon(
-                              Icons.person,
-                              color: Colors.green[700],
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color: Colors.green[700]!,
-                                width: 2,
-                              ),
-                            ),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Nama tidak boleh kosong';
-                            }
-                            return null;
-                          },
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    // Email Field
-                    Card(
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: TextFormField(
-                          controller: _emailController,
-                          decoration: InputDecoration(
-                            labelText: 'Email',
-                            prefixIcon: Icon(
-                              Icons.email,
-                              color: Colors.green[700],
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color: Colors.green[700]!,
-                                width: 2,
-                              ),
-                            ),
-                          ),
-                          keyboardType: TextInputType.emailAddress,
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Email tidak boleh kosong';
-                            }
-                            if (!RegExp(
-                              r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
-                            ).hasMatch(value)) {
-                              return 'Format email tidak valid';
-                            }
-                            return null;
-                          },
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 24),
-
-                    // Update Profile Button
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: _isUpdatingProfile ? null : _updateProfile,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green[700],
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: _isUpdatingProfile
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Text(
-                                'Perbarui Profil',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 32),
-                    const Text(
-                      "Keamanan Akun",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF2E7D32),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    // Change Password Section
-                    Card(
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
+                            child: Column(
                               children: [
                                 Container(
-                                  padding: const EdgeInsets.all(12),
+                                  padding: const EdgeInsets.all(4),
                                   decoration: BoxDecoration(
-                                    color: Colors.blue.withAlpha(
-                                      (0.1 * 255).round(),
-                                    ),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Icon(
-                                    Icons.lock,
-                                    color: Colors.blue[700],
-                                    size: 24,
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        'Ubah Password',
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'Pastikan password Anda kuat dan aman',
-                                        style: TextStyle(
-                                          color: Colors.grey[600],
-                                          fontSize: 14,
-                                        ),
+                                    shape: BoxShape.circle,
+                                    color: Colors.white,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.1),
+                                        blurRadius: 12,
                                       ),
                                     ],
                                   ),
+                                  child: const CircleAvatar(
+                                    radius: 42,
+                                    backgroundColor: Colors.white,
+                                    child: Icon(
+                                      Icons.person,
+                                      size: 48,
+                                      color: Colors.green,
+                                    ),
+                                  ),
                                 ),
-                                IconButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      _showPasswordFields =
-                                          !_showPasswordFields;
-                                    });
-                                  },
-                                  icon: Icon(
-                                    _showPasswordFields
-                                        ? Icons.keyboard_arrow_up
-                                        : Icons.keyboard_arrow_down,
-                                    color: Colors.grey[600],
+
+                                const SizedBox(height: 14),
+
+                                Text(
+                                  _nameController.text.isEmpty
+                                      ? "Driver"
+                                      : _nameController.text,
+                                  style: const TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+
+                                const SizedBox(height: 6),
+
+                                Text(
+                                  user?.email ?? "",
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.8),
                                   ),
                                 ),
                               ],
                             ),
-                            if (_showPasswordFields) ...[
-                              const SizedBox(height: 20),
-                              TextFormField(
-                                controller: _currentPasswordController,
-                                decoration: InputDecoration(
-                                  labelText: 'Password Saat Ini',
-                                  prefixIcon: Icon(
-                                    Icons.lock_outline,
-                                    color: Colors.green[700],
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                obscureText: true,
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return 'Password saat ini wajib diisi';
-                                  }
-                                  return null;
-                                },
+                          ),
+
+                          const SizedBox(height: 24),
+
+                          _buildInputCard(
+                            child: TextFormField(
+                              controller: _nameController,
+                              decoration: _inputDecoration(
+                                label: "Nama Driver",
+                                icon: Icons.person,
                               ),
-                              const SizedBox(height: 16),
-                              TextFormField(
-                                controller: _newPasswordController,
-                                decoration: InputDecoration(
-                                  labelText: 'Password Baru',
-                                  prefixIcon: Icon(
-                                    Icons.lock,
-                                    color: Colors.green[700],
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                obscureText: true,
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return 'Password baru wajib diisi';
-                                  }
-                                  if (value.length < 6) {
-                                    return 'Password minimal 6 karakter';
-                                  }
-                                  return null;
-                                },
+                              validator: (v) => v!.trim().isEmpty
+                                  ? "Nama tidak boleh kosong"
+                                  : null,
+                            ),
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          _buildInputCard(
+                            child: TextFormField(
+                              controller: _phoneController,
+                              decoration: _inputDecoration(
+                                label: "Nomor Telepon",
+                                icon: Icons.phone,
                               ),
-                              const SizedBox(height: 16),
-                              TextFormField(
-                                controller: _confirmPasswordController,
-                                decoration: InputDecoration(
-                                  labelText: 'Konfirmasi Password Baru',
-                                  prefixIcon: Icon(
-                                    Icons.lock,
-                                    color: Colors.green[700],
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                obscureText: true,
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return 'Konfirmasi password wajib diisi';
-                                  }
-                                  return null;
-                                },
-                              ),
-                              const SizedBox(height: 20),
-                              SizedBox(
-                                width: double.infinity,
-                                child: ElevatedButton(
-                                  onPressed: _isUpdatingPassword
-                                      ? null
-                                      : _updatePassword,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.blue[700],
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 14,
+                            ),
+                          ),
+
+                          const SizedBox(height: 24),
+
+                          // ---------------------------------------------------------
+                          // BUTTON UPDATE PROFIL
+                          // ---------------------------------------------------------
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: _isUpdatingProfile
+                                  ? null
+                                  : _updateProfile,
+                              style: elevatedBtn(),
+                              child: _isUpdatingProfile
+                                  ? const CircularProgressIndicator(
+                                      color: Colors.white,
+                                      strokeWidth: 2,
+                                    )
+                                  : const Text(
+                                      "Perbarui Profil",
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        color: Colors.white,
+                                      ),
                                     ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 32),
+
+                          // ---------------------------------------------------------
+                          // PASSWORD SECTION
+                          // ---------------------------------------------------------
+                          if (!_isGoogleUser) ...[
+                            const Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                "Keamanan Akun",
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 10),
+
+                            _buildInputCard(
+                              child: Column(
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.lock,
+                                        color: Colors.green[700],
+                                      ),
+                                      const SizedBox(width: 12),
+                                      const Expanded(
+                                        child: Text(
+                                          "Ubah Password",
+                                          style: TextStyle(fontSize: 16),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: Icon(
+                                          _showPasswordFields
+                                              ? Icons.keyboard_arrow_up
+                                              : Icons.keyboard_arrow_down,
+                                        ),
+                                        onPressed: () {
+                                          setState(
+                                            () => _showPasswordFields =
+                                                !_showPasswordFields,
+                                          );
+                                        },
+                                      ),
+                                    ],
                                   ),
-                                  child: _isUpdatingPassword
-                                      ? const SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: CircularProgressIndicator(
-                                            color: Colors.white,
-                                            strokeWidth: 2,
+
+                                  if (_showPasswordFields) ...[
+                                    const SizedBox(height: 16),
+                                    TextFormField(
+                                      controller: _currentPasswordController,
+                                      obscureText: true,
+                                      decoration: _passwordInput(
+                                        "Password Saat Ini",
+                                      ),
+                                    ),
+                                    const SizedBox(height: 14),
+                                    TextFormField(
+                                      controller: _newPasswordController,
+                                      obscureText: true,
+                                      decoration: _passwordInput(
+                                        "Password Baru",
+                                      ),
+                                    ),
+                                    const SizedBox(height: 14),
+                                    TextFormField(
+                                      controller: _confirmPasswordController,
+                                      obscureText: true,
+                                      decoration: _passwordInput(
+                                        "Konfirmasi Password Baru",
+                                      ),
+                                    ),
+                                    const SizedBox(height: 20),
+
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: ElevatedButton(
+                                        onPressed: _isUpdatingPassword
+                                            ? null
+                                            : _updatePassword,
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.blue[700],
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 14,
                                           ),
-                                        )
-                                      : const Text(
-                                          'Ubah Password',
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
                                           ),
                                         ),
-                                ),
+                                        child: _isUpdatingPassword
+                                            ? const CircularProgressIndicator(
+                                                color: Colors.white,
+                                                strokeWidth: 2,
+                                              )
+                                            : const Text(
+                                                "Ubah Password",
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
-                            ],
+                            ),
                           ],
-                        ),
+
+                          const SizedBox(height: 40),
+                        ],
                       ),
                     ),
-
-                    const SizedBox(height: 40),
-                  ],
-                ),
+                  );
+                },
               ),
-            ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------
+  // UI HELPERS
+  // ---------------------------------------------------------
+
+  InputDecoration _inputDecoration({
+    required String label,
+    required IconData icon,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, color: Colors.green[700]),
+      filled: true,
+      fillColor: Colors.white,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide.none,
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+    );
+  }
+
+  InputDecoration _passwordInput(String label) {
+    return InputDecoration(
+      labelText: label,
+      filled: true,
+      fillColor: Colors.white,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide.none,
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+    );
+  }
+
+  Widget _buildInputCard({required Widget child}) {
+    return Card(
+      elevation: 2,
+      shadowColor: Colors.black12,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(padding: const EdgeInsets.all(18), child: child),
+    );
+  }
+
+  ButtonStyle elevatedBtn() {
+    return ElevatedButton.styleFrom(
+      backgroundColor: Colors.green[700],
+      padding: const EdgeInsets.symmetric(vertical: 15),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     );
   }
 }

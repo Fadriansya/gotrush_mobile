@@ -21,8 +21,8 @@ class OrderService {
     required String address,
     required GeoPoint location,
     required List<String> photoUrls,
-    required String
-    status, // contoh: 'pending_payment' atau 'waiting' tergantung alurmu
+    required String status,
+    DateTime? pickupDate,
   }) async {
     // Ambil timestamp dari server Firestore, lebih akurat daripada dari device.
     final now = FieldValue.serverTimestamp();
@@ -42,6 +42,7 @@ class OrderService {
       "address": address,
       "location": location,
       "photo_urls": photoUrls,
+      "pickup_date": pickupDate != null ? Timestamp.fromDate(pickupDate) : null,
       "created_at": now,
       "updated_at": now,
       "archived": false,
