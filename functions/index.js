@@ -82,6 +82,11 @@ exports.sendOrderStatusNotification = functions.firestore.document("orders/{orde
         messageBody = "Driver telah mengkonfirmasi pengambilan sampah. Harap konfirmasi.";
         break;
     }
+  } else if (newStatus === "payment_success") {
+    // Send to driver when payment successfully completed
+    targetUserId = newData.driver_id;
+    messageTitle = "Pembayaran Berhasil";
+    messageBody = "Pengguna telah membayar. Silakan konfirmasi pengambilan.";
   } else if (newStatus === "completed") {
     // Send to driver
     targetUserId = newData.driver_id;

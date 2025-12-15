@@ -4,13 +4,17 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:sampah_online/screens/driver/driver_profile.dart';
+import 'package:sampah_online/screens/driver/new_orders_screen.dart';
 import 'package:sampah_online/welcome_screen.dart';
 import 'dart:async';
 import 'package:geolocator/geolocator.dart';
 import '../../services/order_service.dart';
 import '../../services/auth_service.dart';
 import '../../utils/alerts.dart';
+import '../../services/notification_service.dart';
 import '../order_history_widget.dart';
+import '../chat_screen.dart';
+import '../order_room_screen.dart';
 import 'driver_map_tracking_screen.dart';
 
 class DriverHomeScreen extends StatefulWidget {
@@ -25,14 +29,29 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   StreamSubscription<QuerySnapshot>? _orderSub;
   Timer? _locationUpdateTimer;
   bool _showingDialog = false;
+  bool _notificationShown = false;
   Map<String, dynamic>? _activeOrderData;
   String? _activeOrderId;
   String? _previousStatus;
+  Timestamp? _lastLoginAt;
+  bool _checkedInitialOrders = false;
+  Map<String, String> _previousStatusPerOrder = {};
+
+  DateTime _startOfToday() {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  DateTime _endOfToday() {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day, 23, 59, 59);
+  }
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _loadLastLogin();
       _startListeningAndTracking();
     });
   }
@@ -44,73 +63,179 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     super.dispose();
   }
 
+  Widget _buildTodayOrderBadge() {
+    final startToday = Timestamp.fromDate(_startOfToday());
+    final endToday = Timestamp.fromDate(_endOfToday());
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('orders')
+          .where('status', whereIn: ['waiting'])
+          .where('driver_id', isNull: true)
+          .where('pickup_date', isGreaterThanOrEqualTo: startToday)
+          .where('pickup_date', isLessThan: endToday)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        // Semua dokumen di snapshot sudah pasti order hari ini
+        final orderCount = snapshot.data!.docs.length;
+        // Tampilkan badge hanya jika ada order hari ini
+        if (orderCount == 0) return const SizedBox.shrink();
+
+        return Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.red,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+            child: Text(
+              orderCount.toString(),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _loadLastLogin() async {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final uid = auth.currentUser?.uid;
+    if (uid == null) return;
+
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .get();
+
+    _lastLoginAt = doc.data()?['last_login_at'] as Timestamp?;
+  }
+
   Future<void> _startListeningAndTracking() async {
     final auth = Provider.of<AuthService>(context, listen: false);
     final driverUid = auth.currentUser?.uid;
     if (driverUid == null) return;
 
-    GeoPoint driverStartLocation = const GeoPoint(-6.1900, 106.7969);
-    // Hentikan listener sebelumnya
     _orderSub?.cancel();
+    final startToday = Timestamp.fromDate(_startOfToday());
+    final endToday = Timestamp.fromDate(_endOfToday());
+    final Set<String> notifiedOrderIds = {};
 
+    // 🔹 Stream untuk order baru hari ini yang belum diambil driver
     _orderSub = FirebaseFirestore.instance
         .collection('orders')
-        .where('status', whereIn: ["payment_success", "waiting"])
+        .where('status', isEqualTo: 'waiting')
+        .where('driver_id', isNull: true)
+        .where('pickup_date', isGreaterThanOrEqualTo: startToday)
+        .where('pickup_date', isLessThan: endToday)
         .snapshots()
         .listen((snapshot) {
-          if (snapshot.docs.isEmpty) return;
+          if (!mounted) return;
 
-          for (var doc in snapshot.docs) {
-            final data = doc.data() as Map<String, dynamic>;
-            final orderId = doc.id;
+          final hasOrders = snapshot.docs.isNotEmpty;
 
-            // Jika ada order aktif → jangan munculkan popup
-            if (_activeOrderId != null) continue;
+          if (hasOrders && !_notificationShown) {
+            _notificationShown = true;
+            _showNewOrdersNotification();
+          }
 
-            if (!_showingDialog) {
-              _showingDialog = true;
-
-              Future.microtask(() {
-                _promptAcceptOrder(orderId, data);
-              });
-
-              break;
-            }
+          if (!hasOrders) {
+            _notificationShown = false;
           }
         });
+
+    // 🔹 Stream untuk order aktif driver
     FirebaseFirestore.instance
         .collection('orders')
         .where('driver_id', isEqualTo: driverUid)
         .where('archived', isEqualTo: false)
         .where(
           'status',
-          whereIn: ['accepted', 'on_the_way', 'arrived', 'completed'],
+          whereIn: [
+            'accepted',
+            'on_the_way',
+            'arrived',
+            'arrived_weight_confirmed',
+            'payment_success',
+            'pickup_confirmed_by_driver',
+            'completed',
+          ],
         )
         .snapshots()
         .listen((activeSnapshot) {
+          if (!mounted) return;
+
           if (activeSnapshot.docs.isNotEmpty) {
             final doc = activeSnapshot.docs.first;
+            final data = doc.data() as Map<String, dynamic>;
+            final status = data['status'] as String;
+            final orderId = doc.id;
+            final paymentStatus = data['payment_status'];
+            setState(() {
+              _activeOrderId = orderId;
+              _activeOrderData = data;
+            });
 
-            if (mounted) {
-              setState(() {
-                _activeOrderId = doc.id;
-                _activeOrderData = doc.data();
-              });
+            // Push Notification Global
+            if (_previousStatusPerOrder[orderId] != '$status|$paymentStatus') {
+              _previousStatusPerOrder[orderId] = '$status|$paymentStatus';
+              // Saat order masuk status accepted, alihkan ke halaman Order Room
+              if (status == 'accepted') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        OrderRoomScreen(orderId: orderId, role: 'driver'),
+                  ),
+                );
+              }
+              if (paymentStatus == 'success') {
+                NotificationService().showLocal(
+                  id: orderId.hashCode & 0x7fffffff,
+                  title: 'Pesanan Dibayar',
+                  body: 'Silakan tekan Konfirmasi Ambil',
+                );
+              }
+
+              switch (status) {
+                case 'pickup_confirmed_by_driver':
+                  NotificationService().showLocal(
+                    id: orderId.hashCode & 0x7fffffff,
+                    title: 'Menunggu Konfirmasi User',
+                    body: 'Tunggu user setuju untuk pengambilan sampah',
+                  );
+                  break;
+                case 'completed':
+                  NotificationService().showLocal(
+                    id: orderId.hashCode & 0x7fffffff,
+                    title: 'Order Selesai',
+                    body: 'Order telah selesai',
+                  );
+                  break;
+              }
             }
           } else if (_activeOrderId != null) {
-            if (mounted) {
-              setState(() {
-                _activeOrderId = null;
-                _activeOrderData = null;
-              });
-            }
+            setState(() {
+              _activeOrderId = null;
+              _activeOrderData = null;
+            });
           }
         });
 
+    // 🔹 Timer update lokasi driver setiap 10 detik
     _locationUpdateTimer?.cancel();
-    _locationUpdateTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+    _locationUpdateTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       final status = _activeOrderData?['status'];
-
       if (status == 'accepted' || status == 'on_the_way') {
         _updateDriverLocation(driverUid);
       }
@@ -123,20 +248,15 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     final GeoPoint pickupLocation =
         _activeOrderData!['location'] as GeoPoint? ?? defaultLocation;
     try {
-      await _orderService.updateStatus(_activeOrderId!, 'on_the_way');
       if (!mounted) return;
-      Navigator.of(context)
-          .push(
-            MaterialPageRoute(
-              builder: (context) => DriverMapTrackingScreen(
-                orderId: _activeOrderId!,
-                userLocation: pickupLocation, // Kirim lokasi tujuan
-              ),
-            ),
-          )
-          .then((_) {
-            // Opsional: Lakukan sesuatu saat kembali dari halaman map
-          });
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => DriverMapTrackingScreen(
+            orderId: _activeOrderId!,
+            userLocation: pickupLocation,
+          ),
+        ),
+      );
     } catch (e) {
       if (!context.mounted) return;
       showAppSnackBar(
@@ -168,6 +288,79 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       // Handle error jika driver menolak izin lokasi atau gagal
       print('Gagal update lokasi driver: $e');
     }
+  }
+
+  Future<void> _showNewOrdersNotification() async {
+    if (!context.mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: false,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const SizedBox(width: 24), // Spacer for center alignment
+                    IconButton(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        if (mounted) {
+                          setState(() => _notificationShown = false);
+                        }
+                      },
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Center(
+                  child: Text(
+                    'Ada orderan baru hari ini',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    if (mounted) {
+                      setState(() => _notificationShown = false);
+                    }
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const NewOrdersScreen(),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green[700],
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Center(
+                    child: Text('Lihat', style: TextStyle(color: Colors.white)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _promptAcceptOrder(
@@ -485,20 +678,31 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
               mainAxisSpacing: 16,
               crossAxisSpacing: 16,
               children: [
-                _buildMenuCard(
-                  context,
-                  title: "Pesanan Baru",
-                  subtitle: "Lihat pesanan masuk",
-                  icon: FontAwesomeIcons.clipboardList,
-                  color: Colors.green,
-                  onTap: () {
-                    // TODO: Navigasi ke halaman pesanan baru
-                  },
+                Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _buildMenuCard(
+                      context,
+                      title: "Pesanan Baru",
+                      subtitle: "Order hari ini",
+                      icon: FontAwesomeIcons.clipboardList,
+                      color: Colors.green,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const NewOrdersScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                    _buildTodayOrderBadge(),
+                  ],
                 ),
+
                 _buildMenuCard(
                   context,
                   title: "Riwayat",
-                  subtitle: "Lihat pengambilan sebelumnya",
+                  subtitle: "Lihat daftar riwayat",
                   icon: FontAwesomeIcons.clockRotateLeft,
                   color: Colors.blue,
                   onTap: () {
@@ -541,7 +745,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                 _buildMenuCard(
                   context,
                   title: "Profil",
-                  subtitle: "Edit profil dan info akun",
+                  subtitle: "Edit profil ",
                   icon: FontAwesomeIcons.userGear,
                   color: Colors.purple,
                   onTap: () {
@@ -554,7 +758,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             ),
 
             const SizedBox(height: 24),
-            // Aktif Order Card
+            // Tidak lagi menampilkan Card Order Aktif.
+            // Jika ada order aktif, tampilkan tombol sederhana untuk membuka halaman Order Room.
             Builder(
               builder: (ctx) {
                 final auth = Provider.of<AuthService>(context, listen: false);
@@ -572,191 +777,38 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                           'accepted',
                           'on_the_way',
                           'arrived',
+                          'arrived_weight_confirmed',
+                          'payment_success',
                           'pickup_confirmed_by_driver',
+                          'user_confirmed_pickup',
                         ],
                       )
                       .limit(1)
                       .snapshots(),
                   builder: (context, snapshot) {
                     if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                      // Jangan panggil setState secara sinkron di dalam build.
-                      if (_activeOrderId != null) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (!mounted) return;
-                          // Pastikan tidak menggandakan setState berkali-kali
-                          if (_activeOrderId != null) {
-                            setState(() {
-                              _activeOrderId = null;
-                              _activeOrderData = null;
-                            });
-                          }
-                        });
-                      }
                       return const SizedBox.shrink();
                     }
-                    final doc = snapshot.data!.docs.first;
-                    final data = doc.data() as Map<String, dynamic>;
-                    final status = data['status'] as String? ?? '';
-                    final orderId = doc.id;
-
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (_activeOrderId != orderId ||
-                          _activeOrderData?['status'] != status) {
-                        setState(() {
-                          _activeOrderId = orderId;
-                          _activeOrderData = data;
-                        });
-                      }
-                    });
-
-                    return Card(
-                      elevation: 2,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    // avoid deprecated withOpacity
-                                    color: Colors.green.withAlpha(
-                                      (0.12 * 255).round(),
-                                    ),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Icon(
-                                    Icons.assignment_turned_in,
-                                    color: Colors.green[700],
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    'Order Aktif',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                                if (status != 'completed')
-                                  AnimatedContainer(
-                                    duration: const Duration(milliseconds: 350),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 6,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: status == 'accepted'
-                                          ? Colors.orange[100]
-                                          : status == 'on_the_way'
-                                          ? Colors.blue[100]
-                                          : status == 'arrived'
-                                          ? Colors.green[100]
-                                          : status ==
-                                                'pickup_confirmed_by_driver'
-                                          ? Colors.yellow[100]
-                                          : Colors.grey[200],
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      status == 'completed'
-                                          ? 'SELESAI'
-                                          : status
-                                                .replaceAll('_', ' ')
-                                                .toUpperCase(),
-                                      style: TextStyle(
-                                        color: status == 'accepted'
-                                            ? Colors.orange[800]
-                                            : status == 'on_the_way'
-                                            ? Colors.blue[800]
-                                            : status == 'arrived'
-                                            ? Colors.green[800]
-                                            : status == 'completed'
-                                            ? Colors.green[800]
-                                            : Colors.grey[700],
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Text('Alamat: ${data['address'] ?? '-'}'),
-                            const SizedBox(height: 6),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                if (status == 'accepted')
-                                  ElevatedButton(
-                                    onPressed: _onDepartPressed,
-                                    child: const Text('Berangkat'),
-                                  ),
-                                const SizedBox(width: 8),
-                                if (status == 'on_the_way')
-                                  ElevatedButton(
-                                    onPressed: () async {
-                                      await _orderService.updateStatus(
-                                        orderId,
-                                        'arrived',
-                                      );
-                                      if (context.mounted) {
-                                        setState(() {
-                                          _activeOrderId = null;
-                                          _activeOrderData = null;
-                                          _locationUpdateTimer?.cancel();
-                                        });
-                                      }
-                                    },
-                                    child: const Text('Tiba'),
-                                  ),
-                                const SizedBox(width: 8),
-                                if (status == 'arrived')
-                                  ElevatedButton(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.green[700],
-                                    ),
-                                    onPressed: () async {
-                                      await _orderService.updateStatus(
-                                        orderId,
-                                        'completed',
-                                      );
-                                      if (context.mounted) {
-                                        showAppSnackBar(
-                                          context,
-                                          'Pengambilan sampah berhasil dikonfirmasi!',
-                                          type: AlertType.success,
-                                        );
-                                      }
-                                    },
-                                    child: const Text('Konfirmasi Ambil'),
-                                  ),
-                                if (status == 'completed')
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 8,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.green[100],
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Text(
-                                      'Selesai',
-                                      style: TextStyle(
-                                        color: Colors.green,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ],
+                    final orderId = snapshot.data!.docs.first.id;
+                    return Align(
+                      alignment: Alignment.centerLeft,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.assignment),
+                        label: const Text('Buka Order Aktif'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green[700],
+                          foregroundColor: Colors.white,
                         ),
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => OrderRoomScreen(
+                                orderId: orderId,
+                                role: 'driver',
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     );
                   },

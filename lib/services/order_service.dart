@@ -1,17 +1,9 @@
 // order_service.dart
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
-// Kelas utama, ibarat 'tukang pos' yang ngirim/ambil data order ke/dari Firestore
 class OrderService {
-  // Bikin instance (objek) koneksi ke database Firestore, biar gampang dipanggil
   final FirebaseFirestore _db = FirebaseFirestore.instance;
-
-  // ================================================================
-  // 1. CREATE ORDER — status awal diserahkan caller, namun payment_status default 'pending'
-  // ================================================================
-  // Fungsi buat bikin order baru. Parameternya lumayan banyak, semuanya (required).
   Future<void> createOrder({
     required String orderId,
     required String userId,
@@ -23,6 +15,8 @@ class OrderService {
     required List<String> photoUrls,
     required String status,
     DateTime? pickupDate,
+    required String name,
+    required String phoneNumber,
   }) async {
     // Ambil timestamp dari server Firestore, lebih akurat daripada dari device.
     final now = FieldValue.serverTimestamp();
@@ -42,10 +36,14 @@ class OrderService {
       "address": address,
       "location": location,
       "photo_urls": photoUrls,
-      "pickup_date": pickupDate != null ? Timestamp.fromDate(pickupDate) : null,
+      "pickup_date": pickupDate != null
+          ? Timestamp.fromDate(pickupDate)
+          : FieldValue.serverTimestamp(),
       "created_at": now,
       "updated_at": now,
       "archived": false,
+      "name": name,
+      "phone_number": phoneNumber,
     };
 
     final batch = _db.batch();
@@ -197,5 +195,38 @@ class OrderService {
   Future<Map<String, dynamic>> _getFullOrderData(String orderId) async {
     final doc = await _db.collection("orders").doc(orderId).get();
     return Map<String, dynamic>.from(doc.data() ?? {});
+  }
+
+  // ================================================================
+  // 8. STREAM — ORDER DRIVER HARI INI (SOURCE OF TRUTH)
+  // ================================================================
+  Stream<QuerySnapshot> driverTodayOrders({List<String>? statuses}) {
+    final List<String> visible =
+        statuses ??
+        [
+          'accepted',
+          'waiting',
+          'on_the_way',
+          'arrived',
+          'arrived_weight_confirmed',
+          'payment_success',
+          'pickup_confirmed_by_driver',
+          'completed',
+        ];
+
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day);
+    final endOfDay = startOfDay.add(const Duration(days: 1));
+
+    return _db
+        .collection('orders')
+        .where('status', whereIn: visible)
+        .where('driver_id', isNull: true)
+        .where(
+          'pickup_date',
+          isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay),
+        )
+        .where('pickup_date', isLessThan: Timestamp.fromDate(endOfDay))
+        .snapshots();
   }
 }

@@ -1,9 +1,11 @@
+// driver_map_tracking_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
 import 'package:flutter_osm_plugin/flutter_osm_plugin.dart' as osm;
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
+import '../../services/notification_service.dart';
 import '../../../services/auth_service.dart';
 
 class DriverMapTrackingScreen extends StatefulWidget {
@@ -59,7 +61,6 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
               longitude: lng,
             );
 
-            // Update marker jika posisi berubah
             if (_driverLocation != null) {
               _mapController.removeMarker(_driverLocation!);
             }
@@ -75,7 +76,6 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
   }
 
   Future<void> _addInitialMarker() async {
-    // Menambahkan marker di lokasi tujuan (user)
     await _mapController.addMarker(
       osm.GeoPoint(
         latitude: widget.userLocation.latitude,
@@ -96,13 +96,11 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
       latitude: currentPosition.latitude,
       longitude: currentPosition.longitude,
     );
-
     final userDestination = osm.GeoPoint(
       latitude: widget.userLocation.latitude,
       longitude: widget.userLocation.longitude,
     );
 
-    // 2. Tambahkan Marker Driver
     await _mapController.addMarker(
       driverLocation,
       markerIcon: const osm.MarkerIcon(
@@ -118,17 +116,53 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
         roadOption: osm.RoadOption(
           roadColor: const Color.fromARGB(255, 43, 255, 0),
           roadWidth: 10,
-          zoomInto: true, // Zoom otomatis ke rute yang digambar
+          zoomInto: true,
         ),
       );
-      debugPrint("✅ Rute berhasil digambar.");
-    } on Exception catch (e) {
-      // Menggunakan Exception yang umum untuk menghindari error
-      debugPrint("❌ Gagal menggambar rute (Network/API Error): $e");
-      // Jika gagal, set zoom agar user melihat lokasinya saja
-      await _mapController.setZoom(zoomLevel: 16);
     } catch (e) {
-      debugPrint("❌ Terjadi error tak terduga saat menggambar rute: $e");
+      debugPrint("❌ Error menggambar rute: $e");
+      await _mapController.setZoom(zoomLevel: 16);
+    }
+  }
+
+  Future<void> _showWeightConfirmationDialog(String orderId) async {
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Konfirmasi Berat'),
+        content: const Text(
+          'Apakah berat sampah sesuai dengan data yang diisi di orderan?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Tidak'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Ya, Sesuai'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await firestore.FirebaseFirestore.instance
+          .collection('orders')
+          .doc(orderId)
+          .update({
+            'status': 'arrived_weight_confirmed',
+            'payment_ready': true,
+          });
+
+      await NotificationService().showLocal(
+        id: (widget.orderId.hashCode & 0x7fffffff),
+        title: 'Driver telah tiba',
+        body:
+            'Berat sampah dikonfirmasi. beritahu user untuk melakukan pembayaran.',
+      );
     }
   }
 
@@ -176,22 +210,68 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
           }
         },
       ),
-      // Tombol Sudah Tiba...
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-          // ... (kode untuk update status 'arrived')
-          await firestore.FirebaseFirestore.instance
-              .collection('orders')
-              .doc(widget.orderId)
-              .update({'status': 'arrived'});
-          if (context.mounted) {
-            Navigator.of(context).pop(); // Kembali ke DriverHomeScreen
-          }
-        },
-        label: const Text('Sudah Tiba'),
-        icon: const Icon(Icons.check_circle_outline),
-        backgroundColor: Colors.green[700],
-      ),
+      floatingActionButton:
+          StreamBuilder<firestore.DocumentSnapshot<Map<String, dynamic>>>(
+            stream: firestore.FirebaseFirestore.instance
+                .collection('orders')
+                .doc(widget.orderId)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) return const SizedBox.shrink();
+              final order = snapshot.data!.data();
+              if (order == null) return const SizedBox.shrink();
+              final status = order['status'] as String? ?? '';
+
+              // Tampilkan tombol 'Sudah Tiba' saat driver dalam proses menuju lokasi
+              if (status == 'accepted' || status == 'on_the_way') {
+                return FloatingActionButton.extended(
+                  onPressed: () async {
+                    await firestore.FirebaseFirestore.instance
+                        .collection('orders')
+                        .doc(widget.orderId)
+                        .update({'status': 'arrived'});
+
+                    if (!context.mounted) return;
+                    Navigator.of(context).pop(); // Tutup Map
+
+                    await _showWeightConfirmationDialog(widget.orderId);
+                  },
+                  label: const Text('Sudah Tiba'),
+                  icon: const Icon(Icons.check_circle_outline),
+                  backgroundColor: Colors.green[700],
+                );
+              } else if (status == 'payment_success') {
+                return FloatingActionButton.extended(
+                  onPressed: () async {
+                    await firestore.FirebaseFirestore.instance
+                        .collection('orders')
+                        .doc(widget.orderId)
+                        .update({'status': 'pickup_confirmed_by_driver'});
+
+                    // Notifikasi ke user: minta konfirmasi ambil (ambil user_id dari order)
+                    final snap = await firestore.FirebaseFirestore.instance
+                        .collection('orders')
+                        .doc(widget.orderId)
+                        .get();
+                    final d = snap.data() as Map<String, dynamic>?;
+                    final userId = d?['user_id'] as String? ?? '';
+                    if (userId.isNotEmpty) {
+                      await NotificationService().notifyUserPickupRequested(
+                        orderId: widget.orderId,
+                        userId: userId,
+                      );
+                    }
+
+                    if (context.mounted) Navigator.of(context).pop();
+                  },
+                  label: const Text('Konfirmasi Ambil'),
+                  icon: const Icon(Icons.shopping_bag),
+                  backgroundColor: Colors.orange[700],
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
     );
   }
 }

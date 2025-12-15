@@ -1,3 +1,4 @@
+// auth_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -41,6 +42,7 @@ class AuthService extends ChangeNotifier {
         'fcm_token': null,
         'status': role == 'driver' ? 'offline' : null,
         'createdAt': FieldValue.serverTimestamp(),
+        'last_login_at': FieldValue.serverTimestamp(),
       });
 
       notifyListeners();
@@ -146,5 +148,16 @@ class AuthService extends ChangeNotifier {
   // =========================================================
   Stream<DocumentSnapshot<Map<String, dynamic>>> userDocStream(String uid) {
     return _firestore.collection('users').doc(uid).snapshots();
+  }
+
+  // =========================================================
+  // Update last login timestamp
+  // =========================================================
+  Future<void> updateLastLogin() async {
+    if (_auth.currentUser == null) return;
+
+    await _firestore.collection('users').doc(_auth.currentUser!.uid).update({
+      'last_login_at': FieldValue.serverTimestamp(),
+    });
   }
 }

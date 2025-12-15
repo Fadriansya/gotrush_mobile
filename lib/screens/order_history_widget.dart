@@ -1,29 +1,35 @@
+// order_history_widget.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'order_detail_screen.dart';
 
 class OrderHistoryWidget extends StatelessWidget {
   final String currentUserId;
-  final String role;
+  final String role; // 'user' | 'driver'
+
   const OrderHistoryWidget({
     super.key,
     required this.currentUserId,
     required this.role,
   });
 
-  // ======== Fungsi bantu warna & ikon status ========
-  Color _getStatusColor(String status) {
+  // ================= UTIL =================
+
+  Color _statusColor(String status) {
     switch (status) {
       case 'waiting':
         return Colors.amber;
       case 'accepted':
         return Colors.orange;
       case 'on_the_way':
-        return Colors.blueAccent;
+        return Colors.blue;
       case 'arrived':
         return Colors.purple;
+      case 'arrived_weight_confirmed':
+        return Colors.teal;
       case 'pickup_confirmed_by_driver':
-        return Colors.yellow;
+        return Colors.yellow[700] ?? Colors.yellow;
       case 'completed':
         return Colors.green;
       default:
@@ -31,7 +37,7 @@ class OrderHistoryWidget extends StatelessWidget {
     }
   }
 
-  IconData _getStatusIcon(String status) {
+  IconData _statusIcon(String status) {
     switch (status) {
       case 'waiting':
         return Icons.hourglass_bottom;
@@ -41,8 +47,10 @@ class OrderHistoryWidget extends StatelessWidget {
         return Icons.local_shipping;
       case 'arrived':
         return Icons.location_on;
+      case 'arrived_weight_confirmed':
+        return Icons.balance;
       case 'pickup_confirmed_by_driver':
-        return Icons.check_circle_outline;
+        return Icons.assignment_turned_in;
       case 'completed':
         return Icons.check_circle;
       default:
@@ -50,116 +58,43 @@ class OrderHistoryWidget extends StatelessWidget {
     }
   }
 
-  String _formatDate(Timestamp? timestamp) {
-    if (timestamp == null) return '-';
-    final date = timestamp.toDate();
-    return DateFormat('d MMM yyyy, HH:mm').format(date);
+  String _formatDate(Timestamp? ts) {
+    if (ts == null) return '-';
+    return DateFormat('d MMM yyyy • HH:mm').format(ts.toDate());
   }
 
-  // ======== Fungsi hapus satu pesanan ========
+  // ================= DELETE =================
+
   Future<void> _deleteOrder(BuildContext context, String orderId) async {
-    if (!context.mounted) return;
-
-    final confirm = await showDialog<bool>(
+    final ok = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Hapus Riwayat"),
-        content: const Text("Apakah kamu yakin ingin menghapus pesanan ini?"),
+      builder: (_) => AlertDialog(
+        title: const Text('Hapus Riwayat'),
+        content: const Text('Pesanan ini akan dihapus permanen.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text("Batal"),
+            child: const Text('Batal'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text("Hapus"),
+            child: const Text('Hapus'),
           ),
         ],
       ),
     );
 
-    if (confirm == true && context.mounted) {
-      try {
-        await FirebaseFirestore.instance
-            .collection('order_history')
-            .doc(orderId)
-            .delete();
-
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Pesanan berhasil dihapus")),
-          );
-        }
-      } catch (e) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text("Gagal menghapus: $e")));
-        }
-      }
+    if (ok == true) {
+      await FirebaseFirestore.instance
+          .collection('order_history')
+          .doc(orderId)
+          .delete();
     }
   }
 
-  // ======== Fungsi hapus semua riwayat ========
-  Future<void> _deleteAllOrders(BuildContext context) async {
-    if (!context.mounted) return;
+  // ================= UI =================
 
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Hapus Semua Riwayat"),
-        content: const Text(
-          "Tindakan ini akan menghapus semua riwayat pesananmu secara permanen. "
-          "Apakah kamu yakin ingin melanjutkan?",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text("Batal"),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text("Hapus Semua"),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true && context.mounted) {
-      try {
-        final batch = FirebaseFirestore.instance.batch();
-        final query = await FirebaseFirestore.instance
-            .collection('order_history')
-            .where(
-              role == 'user' ? 'user_id' : 'driver_id',
-              isEqualTo: currentUserId,
-            )
-            .get();
-
-        for (var doc in query.docs) {
-          batch.delete(doc.reference);
-        }
-
-        await batch.commit();
-
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Semua riwayat berhasil dihapus")),
-          );
-        }
-      } catch (e) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Gagal menghapus semua riwayat: $e")),
-          );
-        }
-      }
-    }
-  }
-
-  // ======== Tampilan utama ========
   @override
   Widget build(BuildContext context) {
     final ordersStream = FirebaseFirestore.instance
@@ -174,160 +109,159 @@ class OrderHistoryWidget extends StatelessWidget {
     return StreamBuilder<QuerySnapshot>(
       stream: ordersStream,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return const Center(child: Text('Belum ada riwayat pemesanan.'));
+        final docs = snapshot.data!.docs;
+        if (docs.isEmpty) {
+          return const Center(child: Text('Belum ada riwayat pesanan'));
         }
 
-        final orders = snapshot.data!.docs;
+        return ListView.builder(
+          padding: const EdgeInsets.all(12),
+          itemCount: docs.length,
+          itemBuilder: (context, index) {
+            final doc = docs[index];
+            final data = doc.data() as Map<String, dynamic>;
+            final orderId = doc.id;
 
-        return Column(
-          children: [
-            // ==== Tombol Hapus Semua ====
-            Padding(
-              padding: const EdgeInsets.only(right: 12, top: 8),
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.delete_sweep),
-                  label: const Text("Hapus Semua"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.redAccent,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    textStyle: const TextStyle(fontSize: 13),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+            final address = data['address'] ?? '-';
+            final status = data['status'] ?? '-';
+            final createdAt = data['created_at'] as Timestamp?;
+
+            return StreamBuilder<DocumentSnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('orders')
+                  .doc(orderId)
+                  .collection('chat_meta')
+                  .doc('meta')
+                  .snapshots(),
+              builder: (context, chatSnap) {
+                int unread = 0;
+
+                if (chatSnap.hasData && chatSnap.data!.exists) {
+                  final meta = chatSnap.data!.data() as Map<String, dynamic>;
+                  unread = role == 'user'
+                      ? (meta['unread_user'] ?? 0)
+                      : (meta['unread_driver'] ?? 0);
+                }
+
+                return Card(
+                  elevation: 3,
+                  margin: const EdgeInsets.symmetric(vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  onPressed: () => _deleteAllOrders(context),
-                ),
-              ),
-            ),
-
-            // ==== Daftar Riwayat ====
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount: orders.length,
-                itemBuilder: (context, index) {
-                  final doc = orders[index];
-                  final data = doc.data() as Map<String, dynamic>;
-                  final orderId = doc.id;
-                  final address = data['address'] ?? '-';
-                  final weight = (data['weight'] ?? 0).toDouble();
-                  final distance = (data['distance'] ?? 0).toDouble();
-                  final price = (data['price'] ?? 0).toDouble();
-                  final status = data['status'] ?? '-';
-                  final createdAt = data['created_at'] as Timestamp?;
-
-                  return Card(
-                    elevation: 3,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    margin: const EdgeInsets.symmetric(vertical: 8),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              OrderDetailScreen(order: data, orderId: orderId),
+                        ),
+                      );
+                    },
                     child: Padding(
-                      padding: const EdgeInsets.all(14.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      padding: const EdgeInsets.all(14),
+                      child: Row(
                         children: [
-                          Row(
+                          // ========== CHAT ICON + BADGE ==========
+                          Stack(
                             children: [
-                              Icon(
-                                Icons.location_on,
-                                color: Colors.green.shade700,
-                                size: 20,
+                              CircleAvatar(
+                                radius: 22,
+                                backgroundColor: Colors.green[700],
+                                child: const Icon(
+                                  Icons.chat,
+                                  color: Colors.white,
+                                ),
                               ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
+                              if (unread > 0)
+                                Positioned(
+                                  right: -2,
+                                  top: -2,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: const BoxDecoration(
+                                      color: Colors.red,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Text(
+                                      unread.toString(),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+
+                          const SizedBox(width: 12),
+
+                          // ========== INFO ==========
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
                                   address,
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w600,
                                     fontSize: 15,
                                   ),
                                 ),
-                              ),
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.delete,
-                                  color: Colors.redAccent,
-                                ),
-                                onPressed: () => _deleteOrder(context, orderId),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            "Berat: ${weight.toStringAsFixed(1)} kg   |   Jarak: ${distance.toStringAsFixed(1)} km",
-                            style: const TextStyle(color: Colors.black87),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            "Harga: Rp ${price.toStringAsFixed(0)}",
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: _getStatusColor(
-                                    status,
-                                  ).withValues(alpha: 0.2),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 4,
-                                ),
-                                child: Row(
+                                const SizedBox(height: 6),
+                                Row(
                                   children: [
                                     Icon(
-                                      _getStatusIcon(status),
+                                      _statusIcon(status),
                                       size: 16,
-                                      color: _getStatusColor(status),
+                                      color: _statusColor(status),
                                     ),
-                                    const SizedBox(width: 5),
+                                    const SizedBox(width: 6),
                                     Text(
                                       status.toUpperCase(),
                                       style: TextStyle(
-                                        color: _getStatusColor(status),
+                                        color: _statusColor(status),
                                         fontWeight: FontWeight.w600,
-                                        fontSize: 12,
                                       ),
                                     ),
                                   ],
                                 ),
-                              ),
-                              Text(
-                                _formatDate(createdAt),
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.black54,
+                                const SizedBox(height: 6),
+                                Text(
+                                  _formatDate(createdAt),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.black54,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
+                          ),
+
+                          // ========== DELETE ==========
+                          IconButton(
+                            icon: const Icon(
+                              Icons.delete,
+                              color: Colors.redAccent,
+                            ),
+                            onPressed: () => _deleteOrder(context, orderId),
                           ),
                         ],
                       ),
                     ),
-                  );
-                },
-              ),
-            ),
-          ],
+                  ),
+                );
+              },
+            );
+          },
         );
       },
     );

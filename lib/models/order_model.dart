@@ -14,6 +14,9 @@ class OrderModel {
   final List<String> photoUrls;
   final Timestamp createdAt;
   final DateTime? pickupDate;
+  final String name;
+  final String phoneNumber;
+  final String? paymentStatus;
 
   OrderModel({
     required this.id,
@@ -28,6 +31,9 @@ class OrderModel {
     required this.photoUrls,
     required this.createdAt,
     this.pickupDate,
+    required this.name,
+    required this.phoneNumber,
+    this.paymentStatus,
   });
 
   factory OrderModel.fromDoc(DocumentSnapshot doc) {
@@ -47,6 +53,9 @@ class OrderModel {
       pickupDate: d['pickup_date'] != null
           ? (d['pickup_date'] as Timestamp).toDate()
           : null,
+      name: d['name'] ?? '',
+      phoneNumber: d['phone_number'] ?? '',
+      paymentStatus: d['payment_status'] as String?,
     );
   }
 
@@ -62,5 +71,8 @@ class OrderModel {
     'photo_urls': photoUrls,
     'created_at': createdAt,
     'pickup_date': pickupDate != null ? Timestamp.fromDate(pickupDate!) : null,
+    'name': name,
+    'phone_number': phoneNumber,
+    'payment_status': paymentStatus,
   };
 }

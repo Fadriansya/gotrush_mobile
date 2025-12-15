@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
+import 'package:sampah_online/screens/user/edukasi_screen.dart';
 import 'package:sampah_online/screens/user/user_profile.dart';
 import '../../services/auth_service.dart';
 import '../../services/order_service.dart';
@@ -14,6 +15,8 @@ import '../../payment.dart';
 import '../../midtrans_payment_webview.dart';
 import '../order_history_widget.dart';
 import '../map_selection_screen.dart';
+import '../chat_screen.dart';
+import '../order_room_screen.dart';
 import 'pickup_schedule_screen.dart';
 
 class UserHomeScreen extends StatefulWidget {
@@ -26,10 +29,13 @@ class UserHomeScreen extends StatefulWidget {
 class _UserHomeScreenState extends State<UserHomeScreen> {
   final OrderService _orderService = OrderService();
   StreamSubscription<firestore.QuerySnapshot>? _orderSub;
-  final Map<String, String> _orderStatuses = {}; // track per order
   bool _dialogOpen = false;
   DateTime? _lastNotifyAt;
   String? _lastNotifiedOrderId;
+  Map<String, dynamic>? _activeOrderData;
+  String? _activeOrderId;
+  final Map<String, String?> _orderStatuses = {};
+  final Map<String, String?> _paymentStatuses = {};
 
   // sample fixed point used for price/distance calc (Monas)
   final firestore.GeoPoint _monasLocation = const firestore.GeoPoint(
@@ -56,6 +62,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     final auth = Provider.of<AuthService>(context, listen: false);
     final uid = auth.currentUser?.uid;
     if (uid == null) return;
+
     bool isInitialLoad = true;
 
     _orderSub = firestore.FirebaseFirestore.instance
@@ -67,41 +74,65 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
             'accepted',
             'on_the_way',
             'arrived',
+            'arrived_weight_confirmed',
             'pickup_confirmed_by_driver',
-            'paid', // include paid so user sees it if needed
-            'completed',
+            'completed', // ✅ boleh, aman sekarang
           ],
         )
         .snapshots()
         .listen(
           (snap) {
+            // 🔹 Initial snapshot: cache only
             if (isInitialLoad) {
               for (var doc in snap.docs) {
-                final id = doc.id;
                 final data = doc.data();
-                final status = (data['status'] as String?) ?? '';
-                _orderStatuses[id] = status;
+                if (data['user_id'] != uid) continue;
+
+                _orderStatuses[doc.id] = data['status'] as String?;
+                _paymentStatuses[doc.id] = data['payment_status'] as String?;
               }
-              // next snapshots are "real" updates
               isInitialLoad = false;
               return;
             }
-            for (var doc in snap.docs) {
-              final id = doc.id;
-              final data = doc.data();
-              final status = (data['status'] as String?) ?? '';
-              final userId = data['user_id'] as String?;
-              if (userId != uid) continue; // only care about this user's orders
 
-              final previousStatus = _orderStatuses[id];
-              if (previousStatus != status) {
-                _orderStatuses[id] = status;
-                _handleStatusChange(
-                  id,
-                  status,
-                  Map<String, dynamic>.from(data),
+            for (var doc in snap.docs) {
+              final data = doc.data();
+              if (data['user_id'] != uid) continue;
+
+              final orderId = doc.id;
+              final status = data['status'] as String?;
+              final payment = data['payment_status'] as String?;
+
+              final prevStatus = _orderStatuses[orderId];
+              final prevPayment = _paymentStatuses[orderId];
+
+              // 🛑 Tidak ada transisi → abaikan
+              if (prevStatus == status && prevPayment == payment) continue;
+
+              // update cache
+              _orderStatuses[orderId] = status;
+              _paymentStatuses[orderId] = payment;
+
+              // ✅ TRANSISI KE COMPLETED (SATU KALI SAJA)
+              if (status == 'completed' && prevStatus != 'completed') {
+                NotificationService().showLocal(
+                  id: orderId.hashCode & 0x7fffffff,
+                  title: 'Pesanan Selesai',
+                  body: 'Pesanan kamu telah diselesaikan driver',
                 );
+
+                setState(() {
+                  _activeOrderId = null;
+                  _activeOrderData = null;
+                });
               }
+
+              // 🔁 Biarkan handler lain bekerja
+              _handleStatusChange(
+                orderId,
+                status ?? '',
+                Map<String, dynamic>.from(data),
+              );
             }
           },
           onError: (e) {
@@ -135,11 +166,10 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     Map<String, dynamic> data,
   ) async {
     if (!mounted) return;
-
     final now = DateTime.now();
     if (_lastNotifyAt != null && _lastNotifiedOrderId == orderId) {
       final diff = now.difference(_lastNotifyAt!);
-      if (diff < const Duration(seconds: 3)) return; // debounce
+      if (diff < const Duration(seconds: 3)) return;
     }
     _lastNotifyAt = now;
     _lastNotifiedOrderId = orderId;
@@ -148,26 +178,20 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       context,
       listen: false,
     );
+    final paymentStatus = data['payment_status'];
 
     switch (status) {
       case 'accepted':
-        await notificationService.showLocal(
-          id: orderId.hashCode,
-          title: 'Driver Ditemukan',
-          body: 'Driver telah menerima pesanan Anda.',
-        );
-        if (_dialogOpen) return;
-        _dialogOpen = true;
-        showAppDialog(
-          context,
-          title: 'Driver Ditemukan',
-          message:
-              'Driver ${data['driver_id'] ?? ''} telah menerima pesanan Anda.',
-          type: AlertType.info,
-        ).then((_) {
-          if (mounted) setState(() => _dialogOpen = false);
-        });
+        // Alihkan ke halaman Order Room khusus
+        if (mounted) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => OrderRoomScreen(orderId: orderId, role: 'user'),
+            ),
+          );
+        }
         break;
+      // case 'accepted': handled above by navigation
 
       case 'on_the_way':
         await notificationService.showLocal(
@@ -200,21 +224,30 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         });
         break;
 
-      case 'pickup_confirmed_by_driver':
+      case 'arrived_weight_confirmed':
         await notificationService.showLocal(
           id: orderId.hashCode + 3,
-          title: 'Konfirmasi Pengambilan',
+          title: 'Konfirmasi Berat',
           body:
-              'Driver telah mengkonfirmasi pengambilan sampah. Harap konfirmasi.',
+              'Berat sampah telah dikonfirmasi driver. Silakan tunggu driver ambil.',
+        );
+        break;
+
+      case 'pickup_confirmed_by_driver':
+        await notificationService.showLocal(
+          id: orderId.hashCode + 4,
+          title: 'Konfirmasi Pengambilan',
+          body: 'Driver telah mengambil sampah. Harap konfirmasi.',
         );
         if (_dialogOpen) return;
         _dialogOpen = true;
         showDialog<void>(
           context: context,
+          barrierDismissible: false,
           builder: (ctx) => AlertDialog(
             title: const Text('Konfirmasi Pengambilan'),
             content: const Text(
-              'Driver telah mengkonfirmasi pengambilan sampah. Apakah Anda setuju?',
+              'Driver telah mengambil sampah. Apakah Anda setuju?',
             ),
             actions: [
               TextButton(
@@ -229,13 +262,15 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                   Navigator.of(ctx).pop();
                   if (!mounted) return;
                   setState(() => _dialogOpen = false);
+
                   await firestore.FirebaseFirestore.instance
                       .collection('orders')
                       .doc(orderId)
-                      .update({'status': 'completed'});
+                      .update({'status': 'user_confirmed_pickup'});
+
                   showAppSnackBar(
                     context,
-                    'Pengambilan sampah berhasil dikonfirmasi!',
+                    'Order selesai! Terima kasih.',
                     type: AlertType.success,
                   );
                 },
@@ -246,24 +281,23 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         );
         break;
 
-      case 'paid':
-      case 'settlement':
-        // server webhook sets order to paid/settlement → beri info ke user
-        await notificationService.showLocal(
-          id: orderId.hashCode + 10,
-          title: 'Pembayaran Berhasil',
-          body: 'Pembayaran telah sukses. Order akan diproses.',
-        );
+      case 'user_confirmed_pickup':
+        // user sudah konfirmasi, sekarang menunggu driver menyelesaikan
         showAppSnackBar(
           context,
-          'Pembayaran sukses. Menunggu driver mengambil order.',
-          type: AlertType.success,
+          'Menunggu driver menyelesaikan pesanan...',
+          type: AlertType.info,
         );
+        setState(() {
+          _activeOrderId = orderId;
+          _activeOrderData = data;
+        });
         break;
 
       case 'completed':
+        _orderStatuses.remove(orderId); // 👈 penting
         await notificationService.showLocal(
-          id: orderId.hashCode + 4,
+          id: orderId.hashCode + 6,
           title: 'Pesanan Selesai',
           body: 'Terima kasih! Sampah telah diambil.',
         );
@@ -277,18 +311,10 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         ).then((_) {
           if (mounted) setState(() => _dialogOpen = false);
         });
-        break;
-
-      case 'payment_failed':
-        showAppSnackBar(
-          context,
-          'Pembayaran gagal. Silakan coba lagi.',
-          type: AlertType.error,
-        );
-        break;
-
-      default:
-        // ignore unknown statuses
+        setState(() {
+          _activeOrderId = null;
+          _activeOrderData = null;
+        });
         break;
     }
   }
@@ -312,7 +338,16 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     );
     final weightCtl = TextEditingController();
     final priceCtl = TextEditingController();
+    final nameCtl = TextEditingController();
+    final phoneCtl = TextEditingController();
     DateTime? selectedDate;
+
+    // Pre-fill name and phone from user profile if available
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final currentUser = auth.currentUser;
+    if (currentUser != null) {
+      nameCtl.text = currentUser.displayName ?? '';
+    }
 
     await showDialog<void>(
       context: context,
@@ -358,6 +393,17 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                     keyboardType: TextInputType.number,
                     readOnly: true,
                   ),
+                  TextField(
+                    controller: nameCtl,
+                    decoration: const InputDecoration(labelText: 'Nama'),
+                  ),
+                  TextField(
+                    controller: phoneCtl,
+                    decoration: const InputDecoration(
+                      labelText: 'Nomor Telepon',
+                    ),
+                    keyboardType: TextInputType.phone,
+                  ),
                   const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: () async {
@@ -393,11 +439,15 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                   final distance = double.tryParse(distanceCtl.text) ?? 0;
                   final weight = double.tryParse(weightCtl.text) ?? 0;
                   final price = double.tryParse(priceCtl.text) ?? 0;
+                  final name = nameCtl.text.trim();
+                  final phoneNumber = phoneCtl.text.trim();
 
-                  if (address.isEmpty) {
+                  if (address.isEmpty || name.isEmpty || phoneNumber.isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Alamat harus diisi'),
+                        content: Text(
+                          'Alamat, nama, dan nomor telepon harus diisi',
+                        ),
                         backgroundColor: Colors.red,
                       ),
                     );
@@ -407,7 +457,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                   // ambil user info
                   final auth = Provider.of<AuthService>(context, listen: false);
                   final uid = auth.currentUser?.uid ?? '';
-                  final name = auth.currentUser?.displayName ?? 'User';
                   final email = auth.currentUser?.email ?? 'user@example.com';
 
                   // 1) generate orderId unik (dipakai untuk Firestore & Midtrans)
@@ -427,6 +476,8 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                       photoUrls: [],
                       status: 'waiting',
                       pickupDate: selectedDate,
+                      name: name,
+                      phoneNumber: phoneNumber,
                     );
                   } catch (e) {
                     if (!mounted) return;
@@ -438,55 +489,17 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                     return;
                   }
 
-                  // 3) minta Snap URL dari backend
-                  final snapUrl = await getMidtransSnapUrl(
-                    orderId: orderId,
-                    grossAmount: price.toInt(),
-                    name: name,
-                    email: email,
-                  );
-
-                  if (snapUrl == null) {
-                    // tandai order gagal diproses pembayaran
-                    try {
-                      await _orderService.updateStatus(
-                        orderId,
-                        'payment_failed',
-                      );
-                    } catch (_) {}
-                    if (!mounted) return;
-                    showAppSnackBar(
-                      context,
-                      'Gagal mendapatkan link pembayaran. Silakan coba lagi',
-                      type: AlertType.error,
-                    );
-                    return;
-                  }
-
-                  // 4) buka WebView Midtrans
-                  Navigator.of(ctx).pop(); // tutup dialog sebelum ke webview
-                  await Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => MidtransPaymentWebView(
-                        snapUrl: snapUrl,
-                        orderId: orderId,
-                        onPaymentSuccess: () async {
-                          await firestore.FirebaseFirestore.instance
-                              .collection('orders')
-                              .doc(orderId)
-                              .update({'status': 'payment_success'});
-                          if (!mounted) return;
-                          showAppSnackBar(
-                            context,
-                            'PEMBAYARAN BERHASIL! Silakan tunggu driver mengambil order.',
-                            type: AlertType.success,
-                          );
-                        },
-                      ),
-                    ),
+                  // 3) untuk alur baru: tanpa pembayaran di awal
+                  //    cukup simpan dan tampilkan jadwal penjemputan
+                  Navigator.of(ctx).pop();
+                  if (!mounted) return;
+                  showAppSnackBar(
+                    context,
+                    'Pesanan disimpan. Menunggu driver menerima.',
+                    type: AlertType.success,
                   );
                 },
-                child: const Text('Bayar'),
+                child: const Text('Simpan'),
               ),
             ],
           );
@@ -501,6 +514,8 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     required double weight,
     required double price,
     required firestore.GeoPoint location,
+    required String name,
+    required String phoneNumber,
     String status = 'waiting',
   }) async {
     try {
@@ -518,6 +533,8 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         location: location,
         photoUrls: [],
         status: status,
+        name: name,
+        phoneNumber: phoneNumber,
       );
 
       if (!mounted) return;
@@ -534,6 +551,95 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
           content: Text('Gagal menyimpan pesanan: $e'),
           backgroundColor: Colors.red,
         ),
+      );
+    }
+  }
+
+  Future<void> _handlePayment() async {
+    if (_activeOrderId == null || _activeOrderData == null) return;
+
+    final orderId = _activeOrderId!;
+    final price = (_activeOrderData!['price'] ?? 0).toDouble();
+    final name = _activeOrderData!['name'] as String? ?? '';
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final email = auth.currentUser?.email ?? 'user@example.com';
+
+    try {
+      final snapUrl = await getMidtransSnapUrl(
+        orderId: orderId,
+        grossAmount: price.toInt(),
+        name: name,
+        email: email,
+      );
+
+      if (snapUrl != null) {
+        final result = await Navigator.of(context).push<Map<String, dynamic>>(
+          MaterialPageRoute(
+            builder: (_) =>
+                MidtransPaymentWebView(snapUrl: snapUrl, orderId: orderId),
+          ),
+        );
+
+        if (result?['status'] == 'success') {
+          // Update order status to paid (redundant with WebView update, but safe)
+          await firestore.FirebaseFirestore.instance
+              .collection('orders')
+              .doc(orderId)
+              .update({
+                'payment_status': 'success',
+                'status': 'payment_success',
+              });
+
+          showAppSnackBar(
+            context,
+            'Pembayaran berhasil!',
+            type: AlertType.success,
+          );
+        } else {
+          showAppSnackBar(
+            context,
+            'Pembayaran dibatalkan.',
+            type: AlertType.info,
+          );
+        }
+      } else {
+        showAppSnackBar(
+          context,
+          'Gagal memulai pembayaran.',
+          type: AlertType.error,
+        );
+      }
+    } catch (e) {
+      showAppSnackBar(context, 'Error: $e', type: AlertType.error);
+    }
+  }
+
+  Future<void> _handleConfirmation() async {
+    if (_activeOrderId == null) return;
+
+    final orderId = _activeOrderId!;
+
+    try {
+      await firestore.FirebaseFirestore.instance
+          .collection('orders')
+          .doc(orderId)
+          .update({'status': 'user_confirmed_pickup'});
+
+      showAppSnackBar(
+        context,
+        'Order dikonfirmasi selesai!',
+        type: AlertType.success,
+      );
+
+      setState(() {
+        _activeOrderId = null;
+        _activeOrderData = null;
+      });
+    } catch (e) {
+      showAppSnackBar(
+        context,
+        'Gagal mengkonfirmasi: $e',
+        type: AlertType.error,
       );
     }
   }
@@ -631,59 +737,66 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   }
 
   Widget _buildBeranda() {
+    final List<Widget> children = [
+      Text(
+        'Hai, Selamat Datang! 👋',
+        style: GoogleFonts.poppins(
+          fontSize: 26,
+          fontWeight: FontWeight.bold,
+          color: Colors.green[800],
+        ),
+      ),
+      const SizedBox(height: 8),
+      Text(
+        'Kelola aktivitas penjemputan sampahmu dengan mudah.',
+        style: GoogleFonts.poppins(color: Colors.grey[700], fontSize: 14),
+      ),
+      const SizedBox(height: 24),
+    ];
+
+    // Card pesanan aktif tidak ditampilkan lagi. Navigasi akan langsung
+    // mengarah ke halaman khusus Order Room ketika status 'accepted'.
+
+    // Add menu items
+    for (final item in menuItems) {
+      children.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 16.0),
+          child: _MenuCard(
+            title: item['title'] as String,
+            subtitle: item['subtitle'] as String,
+            icon: item['icon'] as IconData,
+            color1: item['color1'] as Color,
+            color2: item['color2'] as Color,
+            onTap: () {
+              if (item['title'] == 'Jadwal Penjemputan') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const PickupScheduleScreen(),
+                  ),
+                );
+              } else if (item['title'] == 'Edukasi Daur Ulang') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const EdukasiScreen()),
+                );
+              } else {
+                showAppSnackBar(
+                  context,
+                  'Navigasi ke ${item['title']}',
+                  type: AlertType.info,
+                );
+              }
+            },
+          ),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.all(20.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Hai, Selamat Datang! 👋',
-            style: GoogleFonts.poppins(
-              fontSize: 26,
-              fontWeight: FontWeight.bold,
-              color: Colors.green[800],
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Kelola aktivitas penjemputan sampahmu dengan mudah.',
-            style: GoogleFonts.poppins(color: Colors.grey[700], fontSize: 14),
-          ),
-          const SizedBox(height: 24),
-          Expanded(
-            child: ListView.builder(
-              itemCount: menuItems.length,
-              itemBuilder: (context, index) {
-                final item = menuItems[index];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 16.0),
-                  child: _MenuCard(
-                    title: item['title'] as String,
-                    subtitle: item['subtitle'] as String,
-                    icon: item['icon'] as IconData,
-                    color1: item['color1'] as Color,
-                    color2: item['color2'] as Color,
-                    onTap: () {
-                      if (item['title'] == 'Jadwal Penjemputan') {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const PickupScheduleScreen(),
-                          ),
-                        );
-                      } else {
-                        showAppSnackBar(
-                          context,
-                          'Navigasi ke ${item['title']}',
-                          type: AlertType.info,
-                        );
-                      }
-                    },
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
+        children: [Expanded(child: ListView(children: children))],
       ),
     );
   }
@@ -773,6 +886,156 @@ class _MenuCard extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ActiveOrderCard extends StatelessWidget {
+  final Map<String, dynamic> orderData;
+  final String orderId;
+  final VoidCallback onChatPressed;
+  final VoidCallback? onPayPressed;
+  final VoidCallback? onConfirmPressed;
+
+  const _ActiveOrderCard({
+    required this.orderData,
+    required this.orderId,
+    required this.onChatPressed,
+    this.onPayPressed,
+    this.onConfirmPressed,
+  });
+
+  String _getStatusText(String status) {
+    switch (status) {
+      case 'accepted':
+        return 'Driver Ditemukan';
+      case 'on_the_way':
+        return 'Driver Menuju Lokasi';
+      case 'arrived':
+        return 'Driver Telah Sampai';
+      case 'pickup_confirmed_by_driver':
+        return 'Menunggu Konfirmasi';
+      case 'completed':
+        return 'Selesai';
+      default:
+        return 'Menunggu Driver';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = orderData['status'] as String? ?? '';
+    final weight = (orderData['weight'] ?? 0).toDouble();
+    final price = (orderData['price'] ?? 0).toDouble();
+    final address = orderData['address'] as String? ?? '';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withAlpha((0.2 * 255).round()),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.local_shipping, color: Colors.green[700]),
+              const SizedBox(width: 8),
+              Text(
+                'Pesanan Aktif',
+                style: GoogleFonts.poppins(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.green[800],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Status: ${_getStatusText(status)}',
+            style: GoogleFonts.poppins(fontSize: 14, color: Colors.black87),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Berat: ${weight.toStringAsFixed(1)} kg',
+            style: GoogleFonts.poppins(fontSize: 14, color: Colors.black87),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Harga: Rp ${price.toStringAsFixed(0)}',
+            style: GoogleFonts.poppins(fontSize: 14, color: Colors.black87),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Alamat: $address',
+            style: GoogleFonts.poppins(fontSize: 14, color: Colors.black87),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: onChatPressed,
+                  icon: const Icon(Icons.chat, color: Colors.white),
+                  label: const Text('Chat dengan Driver'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green[700],
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+              if (onPayPressed != null) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: onPayPressed,
+                    icon: const Icon(Icons.payment, color: Colors.white),
+                    label: const Text('Bayar'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue[700],
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ),
+              ] else if (status == 'pickup_confirmed_by_driver' &&
+                  onConfirmPressed != null) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: onConfirmPressed,
+                    icon: const Icon(Icons.check, color: Colors.white),
+                    label: const Text('Konfirmasi'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange[700],
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
       ),
     );
   }

@@ -6,6 +6,10 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
 import '../../models/order_model.dart';
+import '../../payment.dart';
+import '../../midtrans_payment_webview.dart';
+import '../../services/notification_service.dart';
+import '../../services/order_service.dart';
 
 class PickupScheduleScreen extends StatelessWidget {
   const PickupScheduleScreen({super.key});
@@ -33,11 +37,14 @@ class PickupScheduleScreen extends StatelessWidget {
             .where(
               'status',
               whereIn: [
-                'payment_success',
                 'accepted',
+                'waiting',
                 'on_the_way',
                 'arrived',
+                'arrived_weight_confirmed',
+                'payment_success',
                 'pickup_confirmed_by_driver',
+                'completed',
               ],
             )
             .orderBy('pickup_date', descending: false)
@@ -155,6 +162,160 @@ class PickupScheduleScreen extends StatelessWidget {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 12),
+                      // Tombol Bayar muncul setelah driver konfirmasi berat
+                      if (order.status == 'arrived_weight_confirmed' &&
+                          (order.paymentStatus == null ||
+                              order.paymentStatus != 'success'))
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue[700],
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: () async {
+                              final price = (order.price).toInt();
+                              final auth = Provider.of<AuthService>(
+                                context,
+                                listen: false,
+                              );
+                              final email =
+                                  auth.currentUser?.email ?? 'user@example.com';
+
+                              final snapUrl = await getMidtransSnapUrl(
+                                orderId: order.id,
+                                grossAmount: price,
+                                name: order.name ?? 'User',
+                                email: email,
+                              );
+                              if (snapUrl == null) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Gagal memulai pembayaran Midtrans',
+                                    ),
+                                  ),
+                                );
+                                return;
+                              }
+
+                              final result = await Navigator.of(context)
+                                  .push<Map<String, dynamic>>(
+                                    MaterialPageRoute(
+                                      builder: (_) => MidtransPaymentWebView(
+                                        snapUrl: snapUrl,
+                                        orderId: order.id,
+                                      ),
+                                    ),
+                                  );
+
+                              if (result?['status'] == 'success') {
+                                // Safety: set payment_status success if needed (status set in WebView)
+                                await FirebaseFirestore.instance
+                                    .collection('orders')
+                                    .doc(order.id)
+                                    .set({
+                                      'payment_status': 'success',
+                                    }, SetOptions(merge: true));
+
+                                // Notifikasi ke driver: pembayaran berhasil (via local fallback)
+                                final snap = await FirebaseFirestore.instance
+                                    .collection('orders')
+                                    .doc(order.id)
+                                    .get();
+                                final d = snap.data() as Map<String, dynamic>?;
+                                final driverId =
+                                    d?['driver_id'] as String? ?? '';
+                                if (driverId.isNotEmpty) {
+                                  await NotificationService()
+                                      .notifyDriverPaymentSuccess(
+                                        orderId: order.id,
+                                        driverId: driverId,
+                                      );
+                                }
+
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Pembayaran berhasil'),
+                                  ),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.payment),
+                            label: const Text('Bayar'),
+                          ),
+                        )
+                      else if (order.status == 'pickup_confirmed_by_driver')
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green[700],
+                                ),
+                                onPressed: () async {
+                                  await FirebaseFirestore.instance
+                                      .collection('orders')
+                                      .doc(order.id)
+                                      .update({'status': 'completed'});
+                                  if (!context.mounted) return;
+                                  // Notifikasi selesai ke kedua sisi (ambil user_id & driver_id dari order)
+                                  final snap = await FirebaseFirestore.instance
+                                      .collection('orders')
+                                      .doc(order.id)
+                                      .get();
+                                  final d =
+                                      snap.data() as Map<String, dynamic>?;
+                                  final userId = d?['user_id'] as String? ?? '';
+                                  final driverId =
+                                      d?['driver_id'] as String? ?? '';
+                                  if (userId.isNotEmpty &&
+                                      driverId.isNotEmpty) {
+                                    await NotificationService()
+                                        .notifyBothCompleted(
+                                          orderId: order.id,
+                                          userId: userId,
+                                          driverId: driverId,
+                                        );
+                                  }
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Terima kasih! Order selesai.',
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: const Text(
+                                  'Ya, sudah diambil',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () async {
+                                  final orderService = OrderService();
+                                  await orderService.updateStatus(
+                                    order.id,
+                                    'arrived',
+                                  );
+                                  if (!context.mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Kami akan tindak lanjuti.',
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: const Text('Tidak'),
+                              ),
+                            ),
+                          ],
+                        ),
                     ],
                   ),
                 ),
@@ -176,6 +337,8 @@ class PickupScheduleScreen extends StatelessWidget {
         return Colors.blueAccent;
       case 'arrived':
         return Colors.purple;
+      case 'arrived_weight_confirmed':
+        return Colors.teal;
       case 'pickup_confirmed_by_driver':
         return Colors.yellow;
       case 'completed':
