@@ -27,7 +27,9 @@ class OrderService {
       "driver_id": null,
       // status utama (diberi dari caller)
       "status": status,
-      // payment_status: gunakan 'pending' pada create; update jadi 'payment_success' saat webhook/Flutter men-set
+      // payment_status: gunakan 'pending' saat create; setelah pembayaran berhasil,
+      // set ke 'success' dan ubah status order ke 'pickup_validation'
+      // (lihat method markPaymentSuccessToPickupValidation)
       "payment_status": "pending",
       "weight": weight,
       "distance": distance,
@@ -58,14 +60,14 @@ class OrderService {
 
   // ================================================================
   // 2. DRIVER MENERIMA PESANAN (transaction-safe)
-  //    Sekarang menerima order dengan status tertentu (mis. waiting, payment_success)
+  //    Driver hanya dapat menerima order dengan status 'pending'
   // ================================================================
   Future<bool> acceptOrder(String orderId, String driverId) async {
     final orderRef = _db.collection('orders').doc(orderId);
     final historyRef = _db.collection('order_history').doc(orderId);
 
     // statuses yang diizinkan untuk diterima oleh driver
-    final List<String> allowedAcceptStatuses = ['waiting', 'payment_success'];
+    final List<String> allowedAcceptStatuses = ['pending'];
 
     try {
       return await _db.runTransaction<bool>((tx) async {
@@ -83,7 +85,7 @@ class OrderService {
 
         final update = {
           "driver_id": driverId,
-          "status": "accepted",
+          "status": "active",
           "accepted_at": FieldValue.serverTimestamp(),
           "updated_at": FieldValue.serverTimestamp(),
         };
@@ -178,10 +180,10 @@ class OrderService {
 
   // ================================================================
   // 6. STREAM UNTUK DRIVER — bisa listen multiple statuses (whereIn)
-  //    Default: driver melihat order yang sudah dibayar atau waiting
+  //    Default: driver melihat status yang diberikan (default ['pending'])
   // ================================================================
   Stream<QuerySnapshot> driverOrders({List<String>? statuses}) {
-    final List<String> visible = statuses ?? ['payment_success', 'waiting'];
+    final List<String> visible = statuses ?? ['pending'];
     // Firestore whereIn supports up to 10 elements
     return _db
         .collection('orders')
@@ -198,21 +200,194 @@ class OrderService {
   }
 
   // ================================================================
+  // 8. DRIVER MENGAJUKAN BERAT (Weight Verification)
+  //    - Set status -> 'awaiting_confirmation'
+  //    - Simpan driver_weight & tandai konfirmasi pending
+  // ================================================================
+  Future<void> proposeWeight({
+    required String orderId,
+    required String driverId,
+    required double weight,
+  }) async {
+    final ref = _db.collection('orders').doc(orderId);
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      if (!snap.exists) return;
+      final data = snap.data() as Map<String, dynamic>;
+      if ((data['driver_id'] ?? '') != driverId) {
+        throw Exception('Driver tidak berhak mengubah order ini');
+      }
+      tx.update(ref, {
+        'driver_weight': weight,
+        'weight_status': 'proposed', // 'proposed' | 'approved' | 'disputed'
+        'weight_proposed_at': FieldValue.serverTimestamp(),
+        'status': 'awaiting_confirmation',
+        'updated_at': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  // ================================================================
+  // 9. USER SETUJU BERAT
+  //    - Set status -> 'waiting_payment'
+  //    - Finalize final_weight
+  // ================================================================
+  Future<void> confirmWeightByUser({
+    required String orderId,
+    required String userId,
+  }) async {
+    final ref = _db.collection('orders').doc(orderId);
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      if (!snap.exists) return;
+      final data = snap.data() as Map<String, dynamic>;
+      if ((data['user_id'] ?? '') != userId) {
+        throw Exception('User tidak berhak pada order ini');
+      }
+      final driverWeight = (data['driver_weight'] ?? 0).toDouble();
+      tx.update(ref, {
+        'final_weight': driverWeight,
+        'weight_status': 'approved',
+        'status': 'waiting_payment',
+        'updated_at': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  // ================================================================
+  // 10. USER SANGGAH BERAT
+  //     - Kembali ke status 'active' dan tandai 'disputed'
+  // ================================================================
+  Future<void> disputeWeightByUser({
+    required String orderId,
+    required String userId,
+    String? note,
+  }) async {
+    final ref = _db.collection('orders').doc(orderId);
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      if (!snap.exists) return;
+      final data = snap.data() as Map<String, dynamic>;
+      if ((data['user_id'] ?? '') != userId) {
+        throw Exception('User tidak berhak pada order ini');
+      }
+      final update = {
+        'weight_status': 'disputed',
+        'status': 'active',
+        'updated_at': FieldValue.serverTimestamp(),
+      };
+      if (note != null && note.isNotEmpty) {
+        update['weight_note'] = note;
+      }
+      tx.update(ref, update);
+    });
+  }
+
+  // ================================================================
+  // 11. PAYMENT SUCCESS -> PICKUP VALIDATION
+  //     - Set payment_status -> 'success'
+  //     - Set status -> 'pickup_validation'
+  // ================================================================
+  Future<void> markPaymentSuccessToPickupValidation({
+    required String orderId,
+  }) async {
+    final ref = _db.collection('orders').doc(orderId);
+    await ref.update({
+      'payment_status': 'success',
+      'status': 'pickup_validation',
+      'updated_at': FieldValue.serverTimestamp(),
+    });
+  }
+
+  // ================================================================
+  // 12. DRIVER CONFIRM PICKUP
+  //     - Only the assigned driver can set pickup_confirmed = true
+  // ================================================================
+  Future<void> driverConfirmPickup({
+    required String orderId,
+    required String driverId,
+  }) async {
+    final ref = _db.collection('orders').doc(orderId);
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      if (!snap.exists) return;
+      final data = snap.data() as Map<String, dynamic>;
+      if ((data['driver_id'] ?? '') != driverId) {
+        throw Exception('Driver tidak berhak mengubah order ini');
+      }
+      tx.update(ref, {
+        'pickup_confirmed': true,
+        'pickup_confirmed_at': FieldValue.serverTimestamp(),
+        'updated_at': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  // ================================================================
+  // 13. DRIVER RESET PICKUP CONFIRMATION
+  // ================================================================
+  Future<void> driverResetPickupConfirmation({
+    required String orderId,
+    required String driverId,
+  }) async {
+    final ref = _db.collection('orders').doc(orderId);
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      if (!snap.exists) return;
+      final data = snap.data() as Map<String, dynamic>;
+      if ((data['driver_id'] ?? '') != driverId) {
+        throw Exception('Driver tidak berhak mengubah order ini');
+      }
+      tx.update(ref, {
+        'pickup_confirmed': false,
+        'updated_at': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  // ================================================================
+  // 14. USER FINAL VALIDATION
+  //     - If confirmed: status -> 'completed' with server timestamp
+  //     - If not: reset pickup_confirmed -> false
+  // ================================================================
+  Future<void> userFinalValidation({
+    required String orderId,
+    required String userId,
+    required bool confirmed,
+  }) async {
+    final ref = _db.collection('orders').doc(orderId);
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      if (!snap.exists) return;
+      final data = snap.data() as Map<String, dynamic>;
+      if ((data['user_id'] ?? '') != userId) {
+        throw Exception('User tidak berhak pada order ini');
+      }
+      if (confirmed) {
+        tx.update(ref, {
+          'status': 'completed',
+          'completed_at': FieldValue.serverTimestamp(),
+          'updated_at': FieldValue.serverTimestamp(),
+        });
+        // Optionally archive via updateStatus logic outside transaction
+      } else {
+        tx.update(ref, {
+          'pickup_confirmed': false,
+          'updated_at': FieldValue.serverTimestamp(),
+        });
+      }
+    });
+    if (confirmed) {
+      await _archiveOrder(orderId);
+    }
+  }
+
+  // ================================================================
   // 8. STREAM — ORDER DRIVER HARI INI (SOURCE OF TRUTH)
   // ================================================================
   Stream<QuerySnapshot> driverTodayOrders({List<String>? statuses}) {
-    final List<String> visible =
-        statuses ??
-        [
-          'accepted',
-          'waiting',
-          'on_the_way',
-          'arrived',
-          'arrived_weight_confirmed',
-          'payment_success',
-          'pickup_confirmed_by_driver',
-          'completed',
-        ];
+    // Show only new, unassigned orders for today.
+    final List<String> visible = statuses ?? ['pending'];
 
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day);

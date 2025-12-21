@@ -12,15 +12,25 @@ import 'package:sampah_online/welcome_screen.dart';
 import 'services/auth_service.dart';
 import 'services/notification_service.dart';
 import 'screens/register_screen.dart';
+import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Init Intl locale early
+  try {
+    await initializeDateFormatting('id_ID', null);
+    Intl.defaultLocale = 'id_ID';
+  } catch (e) {
+    print("Error initializing locale: $e");
+  }
 
   // Init Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // =====================================================
-  // APP CHECK — MODE PALING STABIL TANPA DEBUG TOKEN
+  // APP CHECK — MODE PALING STABIL
   // =====================================================
   await FirebaseAppCheck.instance.activate(
     androidProvider: AndroidProvider.playIntegrity,

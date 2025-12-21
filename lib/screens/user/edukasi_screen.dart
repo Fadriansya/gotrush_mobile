@@ -57,6 +57,40 @@ class _EdukasiScreenState extends State<EdukasiScreen>
       'Jangan dibuang sembarangan.',
     ],
   };
+  final Map<String, List<String>> _saranTindakan = const {
+    'Organik': [
+      'Pisahkan sampah organik dari plastik sejak awal.',
+      'Tiriskan sisa makanan agar tidak menimbulkan bau.',
+      'Olah menjadi kompos atau masukkan ke lubang biopori.',
+      'Gunakan sebagai pakan ternak jika memungkinkan dan aman.',
+      'Hindari mencampur dengan popok atau bahan kimia.',
+    ],
+    'Anorganik': [
+      'Cuci dan keringkan plastik, kaca, atau logam.',
+      'Pisahkan berdasarkan jenis material.',
+      'Pipihkan botol dan kardus untuk hemat ruang.',
+      'Setorkan ke bank sampah atau pengepul resmi.',
+      'Jangan membakar sampah anorganik.',
+    ],
+    'B3 (Berbahaya & Beracun)': [
+      'Simpan dalam wadah tertutup dan berlabel.',
+      'Jauhkan dari jangkauan anak-anak dan hewan.',
+      'Jangan dibakar atau dibuang ke saluran air.',
+      'Serahkan ke pengelola limbah B3 berizin.',
+    ],
+    'E-waste (Elektronik)': [
+      'Backup dan hapus data pribadi sebelum dibuang.',
+      'Lepaskan baterai jika memungkinkan.',
+      'Gunakan layanan daur ulang elektronik resmi.',
+      'Jangan membongkar atau membakar perangkat.',
+    ],
+    'Sampah Medis Rumah Tangga': [
+      'Masukkan ke kantong tertutup dan kuat (double bag).',
+      'Pisahkan dari sampah lainnya.',
+      'Rusak masker atau sarung tangan sebelum dibuang.',
+      'Ikuti panduan puskesmas atau fasilitas kesehatan.',
+    ],
+  };
 
   final List<String> _prosActions = const [
     'Tetapkan sistem 2 tong: basah & kering.',
@@ -95,6 +129,7 @@ class _EdukasiScreenState extends State<EdukasiScreen>
   @override
   void initState() {
     super.initState();
+    _expanded = List<bool>.filled(5, false); // jumlah panel Jenis Sampah
     _fadeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
@@ -305,21 +340,17 @@ class _EdukasiScreenState extends State<EdukasiScreen>
               icon: Icon(
                 _introExpanded ? Icons.expand_less : Icons.expand_more,
               ),
-              label: Text(_introExpanded ? 'Tutup' : 'Baca Selengkapnya'),
+              label: Text(
+                _introExpanded ? 'Tutup' : 'Baca Selengkapnya',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.teal,
+                ),
+              ),
               onPressed: () => setState(() => _introExpanded = !_introExpanded),
             ),
           ),
           const SizedBox(height: 12),
-          Row(
-            children: const [
-              Icon(Icons.checklist, color: Colors.teal),
-              SizedBox(width: 8),
-              Text(
-                'Checklist Pengantar',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ],
-          ),
           const SizedBox(height: 8),
           ...List.generate(_introChecklist.length, (i) {
             return _animatedCard(
@@ -345,119 +376,136 @@ class _EdukasiScreenState extends State<EdukasiScreen>
         'header': 'Organik',
         'icon': Icons.grass,
         'body':
-            'Contoh: sisa makanan, daun, ranting, ampas kopi.\nKarakteristik: mudah terurai secara biologis.\nPengolahan: \n• Kompos (takakura/komposter), menghasilkan pupuk organik.\n• Biopori: lubang resapan untuk mempercepat penguraian sekaligus cegah genangan.\n• Pakan ternak (tertentu) seperti sisa sayur/buah yang aman.\nCatatan: Hindari mencampur organik dengan anorganik agar proses penguraian optimal.',
+            'Contoh: sisa makanan, daun, ranting, ampas kopi.\n'
+            'Karakteristik: mudah terurai secara biologis.\n\n'
+            'Pengolahan:\n'
+            '• Kompos (takakura/komposter)\n'
+            '• Biopori\n'
+            '• Pakan ternak tertentu\n\n'
+            'Catatan: Jangan dicampur dengan anorganik.',
       },
       {
         'header': 'Anorganik',
         'icon': Icons.recycling,
         'body':
-            'Contoh: plastik (PET, PP, HDPE), kaca, logam (aluminium, besi), kertas/karton.\nKarakteristik: sulit terurai, namun bernilai ekonomi jika dipilah bersih.\nPengolahan: \n• Daur ulang: sortasi, pencucian, pencacahan, peleburan/pemrosesan.\n• Reuse: botol/kotak digunakan kembali jika aman.\nCatatan: Label dan jenis plastik mempengaruhi metode daur ulang (contoh: PET biasa untuk botol minum, PP untuk wadah makanan).',
+            'Contoh: plastik, kaca, logam, kertas.\n'
+            'Karakteristik: sulit terurai tapi bernilai ekonomi.\n\n'
+            'Pengolahan:\n'
+            '• Daur ulang\n'
+            '• Reuse jika aman\n\n'
+            'Catatan: Cuci & keringkan sebelum disetor.',
       },
       {
         'header': 'B3 (Berbahaya & Beracun)',
         'icon': Icons.health_and_safety,
         'body':
-            'Contoh: baterai, lampu neon, oli, cat, pelarut, pestisida.\nKarakteristik: berbahaya bagi manusia dan lingkungan, perlu penanganan khusus.\nPengolahan: \n• Simpan terpisah di wadah tertutup, jauh dari anak-anak/hewan.\n• Serahkan ke pengelola B3 berizin (bank sampah besar, DLH, atau vendor resmi).\nCatatan: Jangan dibuang ke tempat sampah biasa atau dibakar.',
+            'Contoh: baterai, lampu, oli, cat.\n\n'
+            'Pengolahan:\n'
+            '• Simpan terpisah\n'
+            '• Serahkan ke pengelola berizin\n\n'
+            'Catatan: Jangan dibakar.',
       },
       {
-        'header': 'E-waste (Elektronik)',
+        'header': 'E-waste',
         'icon': Icons.memory,
         'body':
-            'Contoh: ponsel, laptop, PC, baterai perangkat, kabel, charger.\nKarakteristik: mengandung logam berat (Pb, Hg) sekaligus komponen berharga (Cu, Au).\nPengolahan: \n• Kirim ke layanan daur ulang elektronik/retailer yang menerima e-waste.\n• Jangan campur dengan sampah domestik; hindari pembongkaran sendiri tanpa alat dan SOP.\nCatatan: Backup data sebelum menyerahkan perangkat lama.',
+            'Contoh: HP, laptop, charger.\n\n'
+            'Pengolahan:\n'
+            '• Daur ulang elektronik resmi\n\n'
+            'Catatan: Backup data dulu.',
       },
       {
         'header': 'Sampah Medis Rumah Tangga',
         'icon': Icons.healing,
         'body':
-            'Contoh: masker sekali pakai, sarung tangan, alat tes tertentu.\nKarakteristik: berpotensi kontaminasi biologis.\nPengolahan: \n• Simpan tertutup, pisahkan dari sampah umum.\n• Ikuti panduan fasilitas kesehatan setempat atau program khusus pengumpulan.\nCatatan: Jangan dibuang sembarangan untuk mencegah risiko kesehatan.',
+            'Contoh: masker, sarung tangan.\n\n'
+            'Pengolahan:\n'
+            '• Simpan tertutup\n'
+            '• Ikuti panduan fasilitas kesehatan',
       },
     ];
 
-    // Sinkronkan panjang _expanded dengan jumlah panel agar tidak RangeError
-    if (_expanded.length != panels.length) {
-      _expanded = List<bool>.filled(panels.length, false);
-    }
-
-    return SingleChildScrollView(
+    return ListView.builder(
       padding: const EdgeInsets.all(16),
-      child: ExpansionPanelList(
-        animationDuration: const Duration(milliseconds: 300),
-        expandedHeaderPadding: EdgeInsets.zero,
-        expansionCallback: (panelIndex, isExpanded) {
-          setState(() => _expanded[panelIndex] = !isExpanded);
-        },
-        children: List.generate(panels.length, (i) {
-          return ExpansionPanel(
-            backgroundColor: Colors.white,
-            isExpanded: _expanded[i],
-            headerBuilder: (context, _) {
-              return ListTile(
-                leading: Icon(
-                  panels[i]['icon'] as IconData,
-                  color: Colors.teal,
-                ),
-                title: Text(
-                  panels[i]['header'] as String,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-              );
-            },
-            body: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+      itemCount: panels.length,
+      itemBuilder: (context, i) {
+        final panel = panels[i];
+        final checklist = _jenisChecklist[panel['header']] ?? <String>[];
+
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: ExpansionTile(
+            maintainState: true,
+            tilePadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 8,
+            ),
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            leading: Icon(panel['icon'] as IconData, color: Colors.teal),
+            title: Text(
+              panel['header'] as String,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            collapsedShape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            children: [
+              Text(
+                panel['body'] as String,
+                style: const TextStyle(color: Colors.black87),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: const [
+                  Icon(Icons.checklist, color: Colors.teal),
+                  SizedBox(width: 8),
                   Text(
-                    panels[i]['body'] as String,
-                    style: const TextStyle(color: Colors.black87),
+                    'Checklist Pemilahan',
+                    style: TextStyle(fontWeight: FontWeight.w700),
                   ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: const [
-                      Icon(Icons.checklist, color: Colors.teal),
-                      SizedBox(width: 8),
-                      Text(
-                        'Checklist Pemilahan',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  ...?_jenisChecklist[(panels[i]['header'] as String)]
-                      ?.map(
-                        (e) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 3),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(8),
-                            onTap: () =>
-                                _showInfo(panels[i]['header'] as String, e),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 4,
-                                horizontal: 4,
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(
-                                    Icons.touch_app,
-                                    color: Colors.teal,
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(child: Text(e)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      )
-                      .toList(),
                 ],
               ),
-            ),
-          );
-        }),
-      ),
+              const SizedBox(height: 6),
+              ...checklist.map(
+                (e) => InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => _showInfo(panel['header'] as String, e),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.touch_app,
+                          color: Colors.teal,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(e)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -724,6 +772,8 @@ class _EdukasiScreenState extends State<EdukasiScreen>
   }
 
   void _showInfo(String category, String text) {
+    final actions = _saranTindakan[category] ?? const [];
+
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -732,45 +782,55 @@ class _EdukasiScreenState extends State<EdukasiScreen>
       builder: (ctx) {
         return Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.info, color: Colors.teal),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      category,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.info, color: Colors.teal),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        category,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(text),
+                const SizedBox(height: 16),
+                Row(
+                  children: const [
+                    Icon(Icons.lightbulb, color: Colors.orange),
+                    SizedBox(width: 8),
+                    Text(
+                      'Saran Tindakan',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ...actions.map(
+                  (e) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.check_circle, color: Colors.green, size: 18),
+                        SizedBox(width: 8),
+                        Expanded(child: Text(e)),
+                      ],
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.of(ctx).pop(),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(text),
-              const SizedBox(height: 12),
-              Row(
-                children: const [
-                  Icon(Icons.lightbulb, color: Colors.orange),
-                  SizedBox(width: 8),
-                  Text(
-                    'Saran Tindakan',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Ikuti langkah pada checklist untuk menerapkan praktik pemilahan yang benar.',
-                style: const TextStyle(color: Colors.black54),
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
         );
       },

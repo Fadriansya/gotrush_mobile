@@ -13,10 +13,14 @@ Color _getStatusColor(String status) {
       return const Color.fromARGB(255, 0, 172, 6);
     case 'pending':
       return Colors.amber;
-    case 'on_the_way':
+    case 'active':
+      return Colors.orange;
+    case 'awaiting_confirmation':
+      return Colors.purple;
+    case 'waiting_payment':
       return Colors.blue;
-    case 'cancelled':
-      return Colors.red;
+    case 'pickup_validation':
+      return Colors.teal;
     default:
       return Colors.grey;
   }
@@ -39,11 +43,13 @@ extension ColorExtension on Color {
 class OrderDetailScreen extends StatelessWidget {
   final Map<String, dynamic> order;
   final String orderId;
+  final int? unreadCount;
 
   const OrderDetailScreen({
     super.key,
     required this.order,
     required this.orderId,
+    this.unreadCount,
   });
 
   @override
@@ -239,6 +245,15 @@ class OrderDetailScreen extends StatelessWidget {
                   orderId,
                   showDivider: true,
                 ),
+                // Tampilkan unread hanya untuk status aktif (sembunyikan saat completed)
+                if ((order["status"]?.toString().toLowerCase() ?? "") !=
+                    "completed")
+                  _infoItem(
+                    Icons.chat_bubble_outline,
+                    "Pesan Belum Dibaca",
+                    unreadCount ?? 0,
+                    showDivider: true,
+                  ),
                 _infoItem(Icons.location_on, "Alamat", order["address"]),
                 _infoItem(
                   Icons.person_outline,
@@ -345,19 +360,54 @@ class OrderDetailScreen extends StatelessWidget {
   }
 
   List<Widget> _buildAppBarActions(BuildContext context, String status) {
-    // Show chat button for accepted, on_the_way, arrived, completed statuses
-    final chatStatuses = ['accepted', 'on_the_way', 'arrived', 'completed'];
+    // Show chat button for active flow statuses
+    final chatStatuses = [
+      'active',
+      'awaiting_confirmation',
+      'waiting_payment',
+      'pickup_validation',
+      'completed',
+    ];
     if (!chatStatuses.contains(status.toLowerCase())) {
       return [];
     }
 
-    return [
-      IconButton(
-        icon: const Icon(Icons.chat, color: Colors.white),
-        onPressed: () => _openChat(context),
-        tooltip: 'Chat',
-      ),
-    ];
+    Widget chatButton = IconButton(
+      icon: const Icon(Icons.chat, color: Colors.white),
+      onPressed: () => _openChat(context),
+      tooltip: 'Chat',
+    );
+
+    // Tampilkan badge unread hanya untuk status aktif (bukan 'completed')
+    if ((unreadCount ?? 0) > 0 && status.toLowerCase() != 'completed') {
+      chatButton = Stack(
+        clipBehavior: Clip.none,
+        children: [
+          chatButton,
+          Positioned(
+            right: 6,
+            top: 6,
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: const BoxDecoration(
+                color: Colors.red,
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                (unreadCount ?? 0).toString(),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return [chatButton];
   }
 
   void _openChat(BuildContext context) {

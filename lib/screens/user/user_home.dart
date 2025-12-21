@@ -70,13 +70,11 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         .where(
           'status',
           whereIn: [
-            'waiting',
-            'accepted',
-            'on_the_way',
-            'arrived',
-            'arrived_weight_confirmed',
-            'pickup_confirmed_by_driver',
-            'completed', // ✅ boleh, aman sekarang
+            'pending',
+            'active',
+            'awaiting_confirmation',
+            'waiting_payment',
+            'completed',
           ],
         )
         .snapshots()
@@ -181,7 +179,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     final paymentStatus = data['payment_status'];
 
     switch (status) {
-      case 'accepted':
+      case 'active':
         // Alihkan ke halaman Order Room khusus
         if (mounted) {
           Navigator.of(context).push(
@@ -193,100 +191,11 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         break;
       // case 'accepted': handled above by navigation
 
-      case 'on_the_way':
-        await notificationService.showLocal(
-          id: orderId.hashCode + 1,
-          title: 'Driver Menuju Lokasi',
-          body: 'Driver sedang menuju lokasi Anda.',
-        );
-        showAppSnackBar(
-          context,
-          'Driver sedang menuju lokasi Anda',
-          type: AlertType.info,
-        );
-        break;
-
-      case 'arrived':
-        await notificationService.showLocal(
-          id: orderId.hashCode + 2,
-          title: 'Driver Telah Sampai',
-          body: 'Driver telah sampai di lokasi. Silakan siapkan sampah.',
-        );
-        if (_dialogOpen) return;
-        _dialogOpen = true;
-        showAppDialog(
-          context,
-          title: 'Driver Sampai',
-          message: 'Driver telah sampai di lokasi. Silakan siapkan sampah.',
-          type: AlertType.info,
-        ).then((_) {
-          if (mounted) setState(() => _dialogOpen = false);
-        });
-        break;
-
-      case 'arrived_weight_confirmed':
-        await notificationService.showLocal(
-          id: orderId.hashCode + 3,
-          title: 'Konfirmasi Berat',
-          body:
-              'Berat sampah telah dikonfirmasi driver. Silakan tunggu driver ambil.',
-        );
-        break;
-
-      case 'pickup_confirmed_by_driver':
+      case 'pickup_validation':
         await notificationService.showLocal(
           id: orderId.hashCode + 4,
-          title: 'Konfirmasi Pengambilan',
-          body: 'Driver telah mengambil sampah. Harap konfirmasi.',
-        );
-        if (_dialogOpen) return;
-        _dialogOpen = true;
-        showDialog<void>(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Konfirmasi Pengambilan'),
-            content: const Text(
-              'Driver telah mengambil sampah. Apakah Anda setuju?',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                  if (mounted) setState(() => _dialogOpen = false);
-                },
-                child: const Text('Tolak'),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  Navigator.of(ctx).pop();
-                  if (!mounted) return;
-                  setState(() => _dialogOpen = false);
-
-                  await firestore.FirebaseFirestore.instance
-                      .collection('orders')
-                      .doc(orderId)
-                      .update({'status': 'user_confirmed_pickup'});
-
-                  showAppSnackBar(
-                    context,
-                    'Order selesai! Terima kasih.',
-                    type: AlertType.success,
-                  );
-                },
-                child: const Text('Setuju'),
-              ),
-            ],
-          ),
-        );
-        break;
-
-      case 'user_confirmed_pickup':
-        // user sudah konfirmasi, sekarang menunggu driver menyelesaikan
-        showAppSnackBar(
-          context,
-          'Menunggu driver menyelesaikan pesanan...',
-          type: AlertType.info,
+          title: 'Validasi Pengambilan',
+          body: 'Silakan lakukan validasi akhir setelah driver konfirmasi.',
         );
         setState(() {
           _activeOrderId = orderId;
@@ -474,7 +383,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                       address: address,
                       location: selectedLocation,
                       photoUrls: [],
-                      status: 'waiting',
+                      status: 'pending',
                       pickupDate: selectedDate,
                       name: name,
                       phoneNumber: phoneNumber,
@@ -516,7 +425,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     required firestore.GeoPoint location,
     required String name,
     required String phoneNumber,
-    String status = 'waiting',
+    String status = 'pending',
   }) async {
     try {
       final auth = Provider.of<AuthService>(context, listen: false);
@@ -581,13 +490,13 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         );
 
         if (result?['status'] == 'success') {
-          // Update order status to paid (redundant with WebView update, but safe)
+          // Update to pickup_validation (safe duplicate of WebView change)
           await firestore.FirebaseFirestore.instance
               .collection('orders')
               .doc(orderId)
               .update({
                 'payment_status': 'success',
-                'status': 'payment_success',
+                'status': 'pickup_validation',
               });
 
           showAppSnackBar(
@@ -755,7 +664,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     ];
 
     // Card pesanan aktif tidak ditampilkan lagi. Navigasi akan langsung
-    // mengarah ke halaman khusus Order Room ketika status 'accepted'.
+    // mengarah ke halaman khusus Order Room ketika status 'active'.
 
     // Add menu items
     for (final item in menuItems) {
@@ -908,18 +817,20 @@ class _ActiveOrderCard extends StatelessWidget {
 
   String _getStatusText(String status) {
     switch (status) {
-      case 'accepted':
+      case 'pending':
+        return 'Menunggu Driver';
+      case 'active':
         return 'Driver Ditemukan';
-      case 'on_the_way':
-        return 'Driver Menuju Lokasi';
-      case 'arrived':
-        return 'Driver Telah Sampai';
-      case 'pickup_confirmed_by_driver':
-        return 'Menunggu Konfirmasi';
+      case 'awaiting_confirmation':
+        return 'Menunggu Konfirmasi Berat';
+      case 'waiting_payment':
+        return 'Menunggu Pembayaran';
+      case 'pickup_validation':
+        return 'Validasi Penjemputan';
       case 'completed':
         return 'Selesai';
       default:
-        return 'Menunggu Driver';
+        return 'Status Tidak Dikenal';
     }
   }
 
@@ -1015,7 +926,8 @@ class _ActiveOrderCard extends StatelessWidget {
                     ),
                   ),
                 ),
-              ] else if (status == 'pickup_confirmed_by_driver' &&
+              ] else if (status == 'pickup_validation' &&
+                  (orderData['pickup_confirmed'] ?? false) == true &&
                   onConfirmPressed != null) ...[
                 const SizedBox(width: 8),
                 Expanded(

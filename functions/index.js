@@ -127,3 +127,48 @@ exports.sendOrderStatusNotification = functions.firestore.document("orders/{orde
     console.error("Error sending notification:", error);
   }
 });
+
+// Push notification to online drivers when a new order for today is created
+exports.notifyDriversOnNewOrder = functions.firestore.document("orders/{orderId}").onCreate(async (snap, context) => {
+  try {
+    const data = snap.data();
+    const status = data.status;
+    const pickupDate = data.pickup_date ? data.pickup_date.toDate() : null;
+    if (!pickupDate) return;
+
+    // Check if pickup date is today
+    const now = new Date();
+    const isSameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    if (!isSameDay(pickupDate, now)) return;
+
+    // Only notify for waiting/pending orders
+    if (!(status === "waiting" || status === "pending")) return;
+
+    // Query online drivers with fcm_token
+    const driversSnap = await db.collection("users").where("role", "==", "driver").where("status", "==", "online").get();
+
+    const tokens = driversSnap.docs.map((d) => d.data().fcm_token).filter((t) => !!t);
+
+    if (!tokens.length) {
+      console.log("No online drivers with tokens");
+      return;
+    }
+
+    const message = {
+      notification: {
+        title: "Pesanan Baru Hari Ini",
+        body: "Ada pesanan baru untuk dijemput hari ini.",
+      },
+      data: {
+        orderId: context.params.orderId,
+        status: status,
+      },
+      tokens,
+    };
+
+    const response = await admin.messaging().sendMulticast(message);
+    console.log(`notifyDriversOnNewOrder sent to ${tokens.length}, success: ${response.successCount}`);
+  } catch (e) {
+    console.error("notifyDriversOnNewOrder error", e);
+  }
+});

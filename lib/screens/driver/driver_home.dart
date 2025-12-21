@@ -36,6 +36,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   Timestamp? _lastLoginAt;
   bool _checkedInitialOrders = false;
   Map<String, String> _previousStatusPerOrder = {};
+  String? _lastNavigatedOrderId; // Tambahkan ini di bagian atas state
 
   DateTime _startOfToday() {
     final now = DateTime.now();
@@ -70,7 +71,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('orders')
-          .where('status', whereIn: ['waiting'])
+          .where('status', whereIn: ['pending'])
           .where('driver_id', isNull: true)
           .where('pickup_date', isGreaterThanOrEqualTo: startToday)
           .where('pickup_date', isLessThan: endToday)
@@ -135,7 +136,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     // 🔹 Stream untuk order baru hari ini yang belum diambil driver
     _orderSub = FirebaseFirestore.instance
         .collection('orders')
-        .where('status', isEqualTo: 'waiting')
+        .where('status', isEqualTo: 'pending')
         .where('driver_id', isNull: true)
         .where('pickup_date', isGreaterThanOrEqualTo: startToday)
         .where('pickup_date', isLessThan: endToday)
@@ -163,12 +164,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         .where(
           'status',
           whereIn: [
-            'accepted',
-            'on_the_way',
-            'arrived',
-            'arrived_weight_confirmed',
-            'payment_success',
-            'pickup_confirmed_by_driver',
+            'active',
+            'awaiting_confirmation',
+            'waiting_payment',
+            'pickup_validation',
             'completed',
           ],
         )
@@ -186,12 +185,27 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
               _activeOrderId = orderId;
               _activeOrderData = data;
             });
+            if (status == 'active' && _lastNavigatedOrderId != orderId) {
+              _lastNavigatedOrderId = orderId; // Tandai sudah navigasi
+
+              Navigator.of(context)
+                  .push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          OrderRoomScreen(orderId: orderId, role: 'driver'),
+                    ),
+                  )
+                  .then((_) {
+                    // Reset saat kembali ke home jika diperlukan
+                    _lastNavigatedOrderId = null;
+                  });
+            }
 
             // Push Notification Global
             if (_previousStatusPerOrder[orderId] != '$status|$paymentStatus') {
               _previousStatusPerOrder[orderId] = '$status|$paymentStatus';
-              // Saat order masuk status accepted, alihkan ke halaman Order Room
-              if (status == 'accepted') {
+              // Saat order masuk status active, alihkan ke halaman Order Room
+              if (status == 'active') {
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) =>
@@ -208,11 +222,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
               }
 
               switch (status) {
-                case 'pickup_confirmed_by_driver':
+                case 'pickup_validation':
                   NotificationService().showLocal(
                     id: orderId.hashCode & 0x7fffffff,
-                    title: 'Menunggu Konfirmasi User',
-                    body: 'Tunggu user setuju untuk pengambilan sampah',
+                    title: 'Validasi Pengambilan',
+                    body: 'Silakan konfirmasi ambil sampah di order.',
                   );
                   break;
                 case 'completed':
@@ -236,7 +250,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     _locationUpdateTimer?.cancel();
     _locationUpdateTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       final status = _activeOrderData?['status'];
-      if (status == 'accepted' || status == 'on_the_way') {
+      if (status == 'active') {
         _updateDriverLocation(driverUid);
       }
     });
@@ -774,13 +788,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                       .where(
                         'status',
                         whereIn: [
-                          'accepted',
-                          'on_the_way',
-                          'arrived',
-                          'arrived_weight_confirmed',
-                          'payment_success',
-                          'pickup_confirmed_by_driver',
-                          'user_confirmed_pickup',
+                          'active',
+                          'awaiting_confirmation',
+                          'waiting_payment',
+                          'pickup_validation',
                         ],
                       )
                       .limit(1)

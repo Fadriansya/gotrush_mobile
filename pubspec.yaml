@@ -35,6 +35,10 @@ dependencies:
   firebase_auth: ^5.1.1
   cloud_firestore: ^5.1.1
   firebase_storage: ^12.4.10
+  audioplayers: ^5.2.1
+  record: ^6.1.2
+  path_provider: ^2.1.5
+  path: ^1.9.0
   shared_preferences: ^2.2.3
   cloud_firestore_platform_interface: ^6.0.4
   firebase_app_check: ^0.3.2+10
@@ -55,6 +59,7 @@ dependencies:
   font_awesome_flutter: ^10.7.0
   google_fonts: ^6.2.1
   flutter_local_notifications: ^19.5.0
+  flutter_launcher_icons: ^0.14.4
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -64,6 +69,13 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/logo/icon.png"
+  adaptive_icon_foreground: "assets/logo/icon.png"
+  adaptive_icon_background: "#ffffff"
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -86,6 +98,7 @@ flutter:
   assets:
     - assets/images/welcome.png
     - assets/images/profile.png
+    - assets/logo/
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see

@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'order_detail_screen.dart';
 
-class OrderHistoryWidget extends StatelessWidget {
+class OrderHistoryWidget extends StatefulWidget {
   final String currentUserId;
   final String role; // 'user' | 'driver'
 
@@ -14,22 +14,34 @@ class OrderHistoryWidget extends StatelessWidget {
     required this.role,
   });
 
+  @override
+  State<OrderHistoryWidget> createState() => _OrderHistoryWidgetState();
+}
+
+class _OrderHistoryWidgetState extends State<OrderHistoryWidget> {
+  static const int _pageSize = 20;
+  List<QueryDocumentSnapshot> _docs = [];
+  DocumentSnapshot? _lastDoc;
+  bool _initialLoading = true;
+  bool _loadingMore = false;
+  bool _hasMore = true;
+  String? _error;
+  late final ScrollController _scrollController;
+
   // ================= UTIL =================
 
   Color _statusColor(String status) {
     switch (status) {
-      case 'waiting':
+      case 'pending':
         return Colors.amber;
-      case 'accepted':
+      case 'active':
         return Colors.orange;
-      case 'on_the_way':
-        return Colors.blue;
-      case 'arrived':
+      case 'awaiting_confirmation':
         return Colors.purple;
-      case 'arrived_weight_confirmed':
+      case 'waiting_payment':
+        return Colors.blue;
+      case 'pickup_validation':
         return Colors.teal;
-      case 'pickup_confirmed_by_driver':
-        return Colors.yellow[700] ?? Colors.yellow;
       case 'completed':
         return Colors.green;
       default:
@@ -39,18 +51,16 @@ class OrderHistoryWidget extends StatelessWidget {
 
   IconData _statusIcon(String status) {
     switch (status) {
-      case 'waiting':
+      case 'pending':
         return Icons.hourglass_bottom;
-      case 'accepted':
+      case 'active':
         return Icons.directions_run;
-      case 'on_the_way':
-        return Icons.local_shipping;
-      case 'arrived':
-        return Icons.location_on;
-      case 'arrived_weight_confirmed':
+      case 'awaiting_confirmation':
         return Icons.balance;
-      case 'pickup_confirmed_by_driver':
-        return Icons.assignment_turned_in;
+      case 'waiting_payment':
+        return Icons.payment;
+      case 'pickup_validation':
+        return Icons.fact_check;
       case 'completed':
         return Icons.check_circle;
       default:
@@ -61,6 +71,82 @@ class OrderHistoryWidget extends StatelessWidget {
   String _formatDate(Timestamp? ts) {
     if (ts == null) return '-';
     return DateFormat('d MMM yyyy • HH:mm').format(ts.toDate());
+  }
+
+  Query _buildQuery() {
+    return FirebaseFirestore.instance
+        .collection('order_history')
+        .where(
+          widget.role == 'user' ? 'user_id' : 'driver_id',
+          isEqualTo: widget.currentUserId,
+        )
+        .where('status', isEqualTo: 'completed')
+        .orderBy('completed_at', descending: true);
+  }
+
+  Future<void> _fetchInitial() async {
+    setState(() {
+      _initialLoading = true;
+      _error = null;
+    });
+    try {
+      final qs = await _buildQuery().limit(_pageSize).get();
+      _docs = qs.docs;
+      _lastDoc = _docs.isNotEmpty ? _docs.last : null;
+      _hasMore = _docs.length == _pageSize;
+    } catch (e) {
+      _error = 'Gagal memuat riwayat: $e';
+    } finally {
+      if (mounted) {
+        setState(() {
+          _initialLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _fetchMore() async {
+    if (_loadingMore || !_hasMore || _lastDoc == null) return;
+    setState(() => _loadingMore = true);
+    try {
+      final qs = await _buildQuery()
+          .startAfterDocument(_lastDoc!)
+          .limit(_pageSize)
+          .get();
+      _docs.addAll(qs.docs);
+      _lastDoc = qs.docs.isNotEmpty ? qs.docs.last : _lastDoc;
+      _hasMore = qs.docs.length == _pageSize;
+    } catch (e) {
+      _error = 'Gagal memuat tambahan riwayat: $e';
+    } finally {
+      if (mounted) {
+        setState(() => _loadingMore = false);
+      }
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+    _scrollController.addListener(_onScroll);
+    _fetchInitial();
+  }
+
+  void _onScroll() {
+    if (!_hasMore || _loadingMore) return;
+    // Trigger when near bottom (within ~200px)
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      _fetchMore();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
   }
 
   // ================= DELETE =================
@@ -90,6 +176,11 @@ class OrderHistoryWidget extends StatelessWidget {
           .collection('order_history')
           .doc(orderId)
           .delete();
+      if (mounted) {
+        setState(() {
+          _docs.removeWhere((d) => d.id == orderId);
+        });
+      }
     }
   }
 
@@ -97,171 +188,155 @@ class OrderHistoryWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ordersStream = FirebaseFirestore.instance
-        .collection('order_history')
-        .where(
-          role == 'user' ? 'user_id' : 'driver_id',
-          isEqualTo: currentUserId,
-        )
-        .orderBy('created_at', descending: true)
-        .snapshots();
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Text(
+            _error!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.redAccent),
+          ),
+        ),
+      );
+    }
 
-    return StreamBuilder<QuerySnapshot>(
-      stream: ordersStream,
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
+    if (_initialLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_docs.isEmpty) {
+      return const Center(child: Text('Belum ada riwayat pesanan'));
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      controller: _scrollController,
+      itemCount: _docs.length + (_loadingMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (_loadingMore && index == _docs.length) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(child: CircularProgressIndicator()),
+          );
         }
 
-        final docs = snapshot.data!.docs;
-        if (docs.isEmpty) {
-          return const Center(child: Text('Belum ada riwayat pesanan'));
-        }
+        final doc = _docs[index];
+        final data = doc.data() as Map<String, dynamic>;
+        final orderId = doc.id;
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(12),
-          itemCount: docs.length,
-          itemBuilder: (context, index) {
-            final doc = docs[index];
-            final data = doc.data() as Map<String, dynamic>;
-            final orderId = doc.id;
+        final address = data['address'] ?? '-';
+        final status = data['status'] ?? '-';
+        final completedAt = data['completed_at'] as Timestamp?;
+        final createdAt = data['created_at'] as Timestamp?;
+        final displayTs = completedAt ?? createdAt;
 
-            final address = data['address'] ?? '-';
-            final status = data['status'] ?? '-';
-            final createdAt = data['created_at'] as Timestamp?;
-
-            return StreamBuilder<DocumentSnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('orders')
-                  .doc(orderId)
-                  .collection('chat_meta')
-                  .doc('meta')
-                  .snapshots(),
-              builder: (context, chatSnap) {
-                int unread = 0;
-
-                if (chatSnap.hasData && chatSnap.data!.exists) {
-                  final meta = chatSnap.data!.data() as Map<String, dynamic>;
-                  unread = role == 'user'
+        return Card(
+          elevation: 3,
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () async {
+              // Lazy unread fetch on tap (single get), then navigate
+              int unread = 0;
+              try {
+                final metaDoc = await FirebaseFirestore.instance
+                    .collection('orders')
+                    .doc(orderId)
+                    .collection('chat_meta')
+                    .doc('meta')
+                    .get();
+                if (metaDoc.exists) {
+                  final meta = metaDoc.data() as Map<String, dynamic>;
+                  unread = widget.role == 'user'
                       ? (meta['unread_user'] ?? 0)
                       : (meta['unread_driver'] ?? 0);
                 }
-
-                return Card(
-                  elevation: 3,
-                  margin: const EdgeInsets.symmetric(vertical: 8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                if (mounted && unread > 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Pesan belum dibaca: $unread')),
+                  );
+                }
+              } catch (_) {}
+              if (!mounted) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => OrderDetailScreen(
+                    order: data,
+                    orderId: orderId,
+                    unreadCount: unread,
                   ),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              OrderDetailScreen(order: data, orderId: orderId),
+                ),
+              );
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  // ========== CHAT ICON (no unread badge fallback) ==========
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: Colors.green[700],
+                    child: const Icon(Icons.chat, color: Colors.white),
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  // ========== INFO ==========
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          address,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                          ),
                         ),
-                      );
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Row(
-                        children: [
-                          // ========== CHAT ICON + BADGE ==========
-                          Stack(
-                            children: [
-                              CircleAvatar(
-                                radius: 22,
-                                backgroundColor: Colors.green[700],
-                                child: const Icon(
-                                  Icons.chat,
-                                  color: Colors.white,
-                                ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(
+                              _statusIcon(status),
+                              size: 16,
+                              color: _statusColor(status),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              status.toUpperCase(),
+                              style: TextStyle(
+                                color: _statusColor(status),
+                                fontWeight: FontWeight.w600,
                               ),
-                              if (unread > 0)
-                                Positioned(
-                                  right: -2,
-                                  top: -2,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(6),
-                                    decoration: const BoxDecoration(
-                                      color: Colors.red,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: Text(
-                                      unread.toString(),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-
-                          const SizedBox(width: 12),
-
-                          // ========== INFO ==========
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  address,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 15,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Row(
-                                  children: [
-                                    Icon(
-                                      _statusIcon(status),
-                                      size: 16,
-                                      color: _statusColor(status),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      status.toUpperCase(),
-                                      style: TextStyle(
-                                        color: _statusColor(status),
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  _formatDate(createdAt),
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.black54,
-                                  ),
-                                ),
-                              ],
                             ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _formatDate(displayTs),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.black54,
                           ),
-
-                          // ========== DELETE ==========
-                          IconButton(
-                            icon: const Icon(
-                              Icons.delete,
-                              color: Colors.redAccent,
-                            ),
-                            onPressed: () => _deleteOrder(context, orderId),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
-                );
-              },
-            );
-          },
+
+                  // ========== DELETE ==========
+                  IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.redAccent),
+                    onPressed: () => _deleteOrder(context, orderId),
+                  ),
+                ],
+              ),
+            ),
+          ),
         );
       },
     );

@@ -5,8 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
 import 'package:flutter_osm_plugin/flutter_osm_plugin.dart' as osm;
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
-import '../../services/notification_service.dart';
 import '../../../services/auth_service.dart';
+import '../../services/order_service.dart';
 
 class DriverMapTrackingScreen extends StatefulWidget {
   final String orderId;
@@ -28,6 +28,7 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
   StreamSubscription<firestore.DocumentSnapshot<Map<String, dynamic>>>?
   _locationSub;
   osm.GeoPoint? _driverLocation;
+  bool _mapReady = false;
 
   @override
   void initState() {
@@ -53,23 +54,25 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
         .listen((snap) {
           if (!mounted || !snap.exists) return;
           final data = snap.data()!;
-          final lat = data['lat'] as double?;
-          final lng = data['lng'] as double?;
-          if (lat != null && lng != null) {
+          final loc = data['location'] as firestore.GeoPoint?;
+          if (loc != null) {
             final newDriverLocation = osm.GeoPoint(
-              latitude: lat,
-              longitude: lng,
+              latitude: loc.latitude,
+              longitude: loc.longitude,
             );
 
-            if (_driverLocation != null) {
-              _mapController.removeMarker(_driverLocation!);
+            // Add marker only after map is ready to avoid icon draw errors
+            if (_mapReady) {
+              if (_driverLocation != null) {
+                _mapController.removeMarker(_driverLocation!);
+              }
+              _mapController.addMarker(
+                newDriverLocation,
+                markerIcon: const osm.MarkerIcon(
+                  icon: Icon(Icons.two_wheeler, color: Colors.blue, size: 48),
+                ),
+              );
             }
-            _mapController.addMarker(
-              newDriverLocation,
-              markerIcon: const osm.MarkerIcon(
-                icon: Icon(Icons.two_wheeler, color: Colors.blue, size: 48),
-              ),
-            );
             setState(() => _driverLocation = newDriverLocation);
           }
         });
@@ -125,46 +128,8 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
     }
   }
 
-  Future<void> _showWeightConfirmationDialog(String orderId) async {
-    if (!mounted) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Konfirmasi Berat'),
-        content: const Text(
-          'Apakah berat sampah sesuai dengan data yang diisi di orderan?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Tidak'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Ya, Sesuai'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      await firestore.FirebaseFirestore.instance
-          .collection('orders')
-          .doc(orderId)
-          .update({
-            'status': 'arrived_weight_confirmed',
-            'payment_ready': true,
-          });
-
-      await NotificationService().showLocal(
-        id: (widget.orderId.hashCode & 0x7fffffff),
-        title: 'Driver telah tiba',
-        body:
-            'Berat sampah dikonfirmasi. beritahu user untuk melakukan pembayaran.',
-      );
-    }
-  }
+  // Legacy weight confirmation dialog removed. Weight/propose/confirm flow
+  // is handled in Order Room with the new status model.
 
   @override
   void dispose() {
@@ -205,6 +170,7 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
         ),
         onMapIsReady: (isReady) async {
           if (isReady) {
+            setState(() => _mapReady = true);
             await _addInitialMarker();
             await _startTrackingAndDrawRoute();
           }
@@ -223,46 +189,24 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
               final status = order['status'] as String? ?? '';
 
               // Tampilkan tombol 'Sudah Tiba' saat driver dalam proses menuju lokasi
-              if (status == 'accepted' || status == 'on_the_way') {
+              if (status == 'pickup_validation') {
                 return FloatingActionButton.extended(
                   onPressed: () async {
-                    await firestore.FirebaseFirestore.instance
-                        .collection('orders')
-                        .doc(widget.orderId)
-                        .update({'status': 'arrived'});
-
-                    if (!context.mounted) return;
-                    Navigator.of(context).pop(); // Tutup Map
-
-                    await _showWeightConfirmationDialog(widget.orderId);
-                  },
-                  label: const Text('Sudah Tiba'),
-                  icon: const Icon(Icons.check_circle_outline),
-                  backgroundColor: Colors.green[700],
-                );
-              } else if (status == 'payment_success') {
-                return FloatingActionButton.extended(
-                  onPressed: () async {
-                    await firestore.FirebaseFirestore.instance
-                        .collection('orders')
-                        .doc(widget.orderId)
-                        .update({'status': 'pickup_confirmed_by_driver'});
-
-                    // Notifikasi ke user: minta konfirmasi ambil (ambil user_id dari order)
-                    final snap = await firestore.FirebaseFirestore.instance
-                        .collection('orders')
-                        .doc(widget.orderId)
-                        .get();
-                    final d = snap.data() as Map<String, dynamic>?;
-                    final userId = d?['user_id'] as String? ?? '';
-                    if (userId.isNotEmpty) {
-                      await NotificationService().notifyUserPickupRequested(
-                        orderId: widget.orderId,
-                        userId: userId,
+                    // Use OrderService to confirm pickup
+                    try {
+                      final auth = Provider.of<AuthService>(
+                        context,
+                        listen: false,
                       );
+                      final driverId = auth.currentUser?.uid ?? '';
+                      await OrderService().driverConfirmPickup(
+                        orderId: widget.orderId,
+                        driverId: driverId,
+                      );
+                      if (context.mounted) Navigator.of(context).pop();
+                    } catch (e) {
+                      debugPrint('Gagal konfirmasi ambil: $e');
                     }
-
-                    if (context.mounted) Navigator.of(context).pop();
                   },
                   label: const Text('Konfirmasi Ambil'),
                   icon: const Icon(Icons.shopping_bag),

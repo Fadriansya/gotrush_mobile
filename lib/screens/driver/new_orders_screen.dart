@@ -32,9 +32,7 @@ class _NewOrdersScreenState extends State<NewOrdersScreen> {
         ),
       ),
       body: StreamBuilder<QuerySnapshot>(
-        stream: _orderService.driverTodayOrders(
-          statuses: ['waiting', 'payment_success'],
-        ),
+        stream: _orderService.driverTodayOrders(statuses: ['pending']),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());

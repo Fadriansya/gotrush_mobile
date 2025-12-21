@@ -37,13 +37,10 @@ class PickupScheduleScreen extends StatelessWidget {
             .where(
               'status',
               whereIn: [
-                'accepted',
-                'waiting',
-                'on_the_way',
-                'arrived',
-                'arrived_weight_confirmed',
-                'payment_success',
-                'pickup_confirmed_by_driver',
+                'pending',
+                'active',
+                'awaiting_confirmation',
+                'waiting_payment',
                 'completed',
               ],
             )
@@ -163,8 +160,8 @@ class PickupScheduleScreen extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      // Tombol Bayar muncul setelah driver konfirmasi berat
-                      if (order.status == 'arrived_weight_confirmed' &&
+                      // Tombol Bayar muncul saat menunggu pembayaran
+                      if (order.status == 'waiting_payment' &&
                           (order.paymentStatus == null ||
                               order.paymentStatus != 'success'))
                         SizedBox(
@@ -245,76 +242,6 @@ class PickupScheduleScreen extends StatelessWidget {
                             icon: const Icon(Icons.payment),
                             label: const Text('Bayar'),
                           ),
-                        )
-                      else if (order.status == 'pickup_confirmed_by_driver')
-                        Row(
-                          children: [
-                            Expanded(
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green[700],
-                                ),
-                                onPressed: () async {
-                                  await FirebaseFirestore.instance
-                                      .collection('orders')
-                                      .doc(order.id)
-                                      .update({'status': 'completed'});
-                                  if (!context.mounted) return;
-                                  // Notifikasi selesai ke kedua sisi (ambil user_id & driver_id dari order)
-                                  final snap = await FirebaseFirestore.instance
-                                      .collection('orders')
-                                      .doc(order.id)
-                                      .get();
-                                  final d =
-                                      snap.data() as Map<String, dynamic>?;
-                                  final userId = d?['user_id'] as String? ?? '';
-                                  final driverId =
-                                      d?['driver_id'] as String? ?? '';
-                                  if (userId.isNotEmpty &&
-                                      driverId.isNotEmpty) {
-                                    await NotificationService()
-                                        .notifyBothCompleted(
-                                          orderId: order.id,
-                                          userId: userId,
-                                          driverId: driverId,
-                                        );
-                                  }
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Terima kasih! Order selesai.',
-                                      ),
-                                    ),
-                                  );
-                                },
-                                child: const Text(
-                                  'Ya, sudah diambil',
-                                  style: TextStyle(color: Colors.white),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: () async {
-                                  final orderService = OrderService();
-                                  await orderService.updateStatus(
-                                    order.id,
-                                    'arrived',
-                                  );
-                                  if (!context.mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Kami akan tindak lanjuti.',
-                                      ),
-                                    ),
-                                  );
-                                },
-                                child: const Text('Tidak'),
-                              ),
-                            ),
-                          ],
                         ),
                     ],
                   ),
@@ -329,18 +256,16 @@ class PickupScheduleScreen extends StatelessWidget {
 
   Color _getStatusColor(String status) {
     switch (status) {
-      case 'waiting':
+      case 'pending':
         return Colors.amber;
-      case 'accepted':
+      case 'active':
         return Colors.orange;
-      case 'on_the_way':
+      case 'awaiting_confirmation':
         return Colors.blueAccent;
-      case 'arrived':
+      case 'waiting_payment':
         return Colors.purple;
-      case 'arrived_weight_confirmed':
+      case 'pickup_validation':
         return Colors.teal;
-      case 'pickup_confirmed_by_driver':
-        return Colors.yellow;
       case 'completed':
         return Colors.green;
       default:

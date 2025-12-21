@@ -45,5 +45,8 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Microphone usage description for recording Voice Notes -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Aplikasi memerlukan akses mikrofon untuk merekam Voice Note.</string>
 </dict>
 </plist>

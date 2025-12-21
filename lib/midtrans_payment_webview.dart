@@ -68,13 +68,13 @@ class _MidtransPaymentWebViewState extends State<MidtransPaymentWebView> {
                 url.startsWith(
                   "http://api-midtrans-teal.vercel.app/api/payment-finish",
                 )) {
-              // Update status order ke 'payment_success' di Firestore
+              // Payment success -> move to pickup_validation stage
               FirebaseFirestore.instance
                   .collection('orders')
                   .doc(widget.orderId)
                   .update({
                     'payment_status': 'success',
-                    'status': 'payment_success',
+                    'status': 'pickup_validation',
                     'payment_time': Timestamp.now(),
                   });
 

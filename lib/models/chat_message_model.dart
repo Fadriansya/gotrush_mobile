@@ -11,7 +11,8 @@ class ChatMessage {
   final Timestamp createdAt;
   final Timestamp? readAt; // null = belum dibaca
 
-  final String type; // 'text' | 'image' | 'system'
+  final String type; // 'text' | 'image' | 'audio' | 'system'
+  final int? durationMs; // khusus audio (opsional)
 
   ChatMessage({
     required this.id,
@@ -22,6 +23,7 @@ class ChatMessage {
     required this.createdAt,
     this.readAt,
     this.type = 'text',
+    this.durationMs,
   });
 
   factory ChatMessage.fromDoc(DocumentSnapshot doc) {
@@ -35,6 +37,7 @@ class ChatMessage {
       createdAt: d['created_at'],
       readAt: d['read_at'],
       type: d['type'] ?? 'text',
+      durationMs: d['duration_ms'],
     );
   }
 
@@ -46,5 +49,6 @@ class ChatMessage {
     'created_at': createdAt,
     'read_at': readAt,
     'type': type,
+    if (durationMs != null) 'duration_ms': durationMs,
   };
 }
