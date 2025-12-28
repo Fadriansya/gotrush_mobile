@@ -74,6 +74,9 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
             'active',
             'awaiting_confirmation',
             'waiting_payment',
+            'arrived',
+            'waiting_user_validation',
+            'picked_up',
             'completed',
           ],
         )
@@ -196,6 +199,31 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
           id: orderId.hashCode + 4,
           title: 'Validasi Pengambilan',
           body: 'Silakan lakukan validasi akhir setelah driver konfirmasi.',
+        );
+        setState(() {
+          _activeOrderId = orderId;
+          _activeOrderData = data;
+        });
+        break;
+
+      case 'waiting_user_validation':
+        await notificationService.showLocal(
+          id: orderId.hashCode + 7,
+          title: 'Konfirmasi Pengambilan',
+          body:
+              'Driver mengonfirmasi pengambilan. Apakah sampah sudah diambil?',
+        );
+        setState(() {
+          _activeOrderId = orderId;
+          _activeOrderData = data;
+        });
+        break;
+
+      case 'arrived':
+        await notificationService.showLocal(
+          id: orderId.hashCode + 8,
+          title: 'Driver Tiba di Lokasi',
+          body: 'Driver telah tiba. Anda dapat memantau pergerakannya.',
         );
         setState(() {
           _activeOrderId = orderId;
@@ -602,22 +630,8 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         backgroundColor: Colors.green[700],
       ),
       body: pages[_selectedIndex],
-      floatingActionButton: _selectedIndex == 0
-          ? FloatingActionButton.extended(
-              onPressed: _startCreateOrderFlow,
-              label: const Text(
-                'Buat Order',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontFamily: 'Poppins',
-                  fontSize: 20,
-                ),
-              ),
-              icon: const Icon(Icons.add_location_alt),
-              backgroundColor: const Color.fromARGB(255, 13, 214, 23),
-            )
-          : null,
+      floatingActionButton: _selectedIndex == 0 ? _buildDynamicFab() : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       bottomNavigationBar: BottomNavigationBar(
         backgroundColor: Colors.white,
         currentIndex: _selectedIndex,
@@ -707,6 +721,108 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [Expanded(child: ListView(children: children))],
       ),
+    );
+  }
+
+  // Floating/Dynamic Button: selalu tampil 'Buat Order', tambah 'Orderan Aktif' jika ada order aktif
+  Widget _buildDynamicFab() {
+    final auth = Provider.of<AuthService>(context, listen: false);
+    final uid = auth.currentUser?.uid;
+    final createBtn = Expanded(
+      child: ElevatedButton.icon(
+        onPressed: _startCreateOrderFlow,
+        icon: const Icon(Icons.add_location_alt, color: Colors.white),
+        label: const Text(
+          'Buat Order',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+            fontFamily: 'Poppins',
+            fontSize: 16,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color.fromARGB(255, 13, 214, 23),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+    );
+    if (uid == null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        child: Row(children: [createBtn]),
+      );
+    }
+
+    // Status yang dianggap aktif/processing di sisi user
+    const activeStatuses = [
+      'active',
+      'awaiting_confirmation',
+      'waiting_payment',
+      'pickup_validation',
+      'arrived',
+      'waiting_user_validation',
+      'picked_up',
+    ];
+
+    return StreamBuilder<firestore.QuerySnapshot<Map<String, dynamic>>>(
+      stream: firestore.FirebaseFirestore.instance
+          .collection('orders')
+          .where('user_id', isEqualTo: uid)
+          .where('archived', isEqualTo: false)
+          .where('status', whereIn: activeStatuses)
+          .limit(1)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final hasActive = snapshot.hasData && snapshot.data!.docs.isNotEmpty;
+        Widget? activeBtn;
+        if (hasActive) {
+          final orderId = snapshot.data!.docs.first.id;
+          activeBtn = Expanded(
+            child: ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        OrderRoomScreen(orderId: orderId, role: 'user'),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.assignment, color: Colors.white),
+              label: const Text(
+                'Orderan Aktif',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontFamily: 'Poppins',
+                  fontSize: 16,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange[700],
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          );
+        }
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          child: Row(
+            children: [
+              createBtn,
+              if (activeBtn != null) const SizedBox(width: 12),
+              if (activeBtn != null) activeBtn,
+            ],
+          ),
+        );
+      },
     );
   }
 

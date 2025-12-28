@@ -46,6 +46,8 @@ class OrderService {
       "archived": false,
       "name": name,
       "phone_number": phoneNumber,
+      "hidden_by_user": false,
+      "hidden_by_driver": false,
     };
 
     final batch = _db.batch();
@@ -115,6 +117,7 @@ class OrderService {
 
     if (newStatus == "completed") {
       update["completed_at"] = now;
+      update["timestamp_end"] = now; // tambahan untuk konsistensi mapping
     }
 
     final merged = {...fullData, ...update};
@@ -245,8 +248,15 @@ class OrderService {
         throw Exception('User tidak berhak pada order ini');
       }
       final driverWeight = (data['driver_weight'] ?? 0).toDouble();
+      // Recalculate price dynamically using simple constants
+      const double pricePerKm = 2000;
+      const double pricePerKg = 2000;
+      final distance = (data['distance'] ?? 0).toDouble();
+      final newPrice = (distance * pricePerKm) + (driverWeight * pricePerKg);
       tx.update(ref, {
         'final_weight': driverWeight,
+        'price': newPrice,
+        'price_paid': newPrice,
         'weight_status': 'approved',
         'status': 'waiting_payment',
         'updated_at': FieldValue.serverTimestamp(),
@@ -315,9 +325,10 @@ class OrderService {
       if ((data['driver_id'] ?? '') != driverId) {
         throw Exception('Driver tidak berhak mengubah order ini');
       }
+      // Alur baru: setelah driver konfirmasi ambil, minta validasi user
       tx.update(ref, {
-        'pickup_confirmed': true,
-        'pickup_confirmed_at': FieldValue.serverTimestamp(),
+        'status': 'waiting_user_validation',
+        'pickup_requested_at': FieldValue.serverTimestamp(),
         'updated_at': FieldValue.serverTimestamp(),
       });
     });
@@ -338,8 +349,9 @@ class OrderService {
       if ((data['driver_id'] ?? '') != driverId) {
         throw Exception('Driver tidak berhak mengubah order ini');
       }
+      // Alur baru: kembali ke status 'arrived' agar driver dapat ulang konfirmasi
       tx.update(ref, {
-        'pickup_confirmed': false,
+        'status': 'arrived',
         'updated_at': FieldValue.serverTimestamp(),
       });
     });
@@ -350,7 +362,10 @@ class OrderService {
   //     - If confirmed: status -> 'completed' with server timestamp
   //     - If not: reset pickup_confirmed -> false
   // ================================================================
-  Future<void> userFinalValidation({
+  // Alur baru: validasi user terhadap pengambilan
+  // - Jika confirmed==true -> status 'picked_up'
+  // - Jika confirmed==false -> kembali ke 'arrived'
+  Future<void> userRespondPickupValidation({
     required String orderId,
     required String userId,
     required bool confirmed,
@@ -365,21 +380,63 @@ class OrderService {
       }
       if (confirmed) {
         tx.update(ref, {
-          'status': 'completed',
-          'completed_at': FieldValue.serverTimestamp(),
+          'status': 'picked_up',
+          'picked_up_at': FieldValue.serverTimestamp(),
           'updated_at': FieldValue.serverTimestamp(),
         });
-        // Optionally archive via updateStatus logic outside transaction
       } else {
         tx.update(ref, {
-          'pickup_confirmed': false,
+          'status': 'arrived',
           'updated_at': FieldValue.serverTimestamp(),
         });
       }
     });
-    if (confirmed) {
-      await _archiveOrder(orderId);
-    }
+  }
+
+  // Tambahan: driver menandai telah tiba di lokasi
+  Future<void> driverArrived({
+    required String orderId,
+    required String driverId,
+  }) async {
+    final ref = _db.collection('orders').doc(orderId);
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      if (!snap.exists) return;
+      final data = snap.data() as Map<String, dynamic>;
+      if ((data['driver_id'] ?? '') != driverId) {
+        throw Exception('Driver tidak berhak mengubah order ini');
+      }
+      tx.update(ref, {
+        'status': 'arrived',
+        'arrived_at': FieldValue.serverTimestamp(),
+        'updated_at': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  // Tambahan: driver menyelesaikan order setelah user menyatakan 'Ya/picked_up'
+  Future<void> driverCompleteOrder({
+    required String orderId,
+    required String driverId,
+  }) async {
+    final ref = _db.collection('orders').doc(orderId);
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      if (!snap.exists) return;
+      final data = snap.data() as Map<String, dynamic>;
+      if ((data['driver_id'] ?? '') != driverId) {
+        throw Exception('Driver tidak berhak mengubah order ini');
+      }
+      tx.update(ref, {
+        'status': 'completed',
+        'completed_at': FieldValue.serverTimestamp(),
+        'timestamp_end': FieldValue.serverTimestamp(),
+        'updated_at': FieldValue.serverTimestamp(),
+        'hidden_by_user': false,
+        'hidden_by_driver': false,
+      });
+    });
+    await _archiveOrder(orderId);
   }
 
   // ================================================================

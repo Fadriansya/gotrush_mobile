@@ -66,16 +66,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
       // Tangani FirebaseAuthException khusus (jika pakai)
       String message = e.toString();
       try {
-        // FirebaseAuthException biasanya punya `.code`
-        // Kita coba casting secara aman:
-        // ignore: avoid_catching_errors
         final ex = e as dynamic;
         if (ex.code != null) {
           if (ex.code == 'email-already-in-use') {
             message =
                 'Email sudah terdaftar. Coba login atau gunakan email lain.';
           } else if (ex.code == 'invalid-email') {
-            message = 'Format email tidak valid.';
+            message = 'hanya format @gmail.com yang didukung.';
           } else if (ex.code == 'weak-password') {
             message = 'Password terlalu lemah.';
           } else {
@@ -196,9 +193,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           if (v == null || v.trim().isEmpty) {
                             return 'Email wajib diisi';
                           }
-                          final regex = RegExp(r'^[^@]+@[^@]+\.[^@]+');
+                          final regex = RegExp(
+                            r'^[^@]+@gmail\.com$',
+                            caseSensitive: false,
+                          );
                           if (!regex.hasMatch(v.trim())) {
-                            return 'Format email tidak valid';
+                            return 'hanya format @gmail.com yang diterima.';
                           }
                           return null;
                         },
@@ -230,9 +230,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               fillColor: Colors.green[50],
                             ),
                             obscureText: !show,
-                            validator: (v) => (v == null || v.length < 6)
-                                ? 'Minimal 6 karakter'
-                                : null,
+                            validator: (v) {
+                              if (v == null || v.isEmpty) {
+                                return 'Password tidak boleh kosong';
+                              }
+                              final passwordRegExp = RegExp(
+                                r'^(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9]).{6,}$',
+                              );
+
+                              if (!passwordRegExp.hasMatch(v)) {
+                                return 'Password 6+ karakter, huruf besar, kecil, dan angka';
+                              }
+
+                              return null;
+                            },
                           );
                         },
                       ),

@@ -58,7 +58,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'GotRush',
+      title: 'GoTrash',
       debugShowCheckedModeBanner: false,
       home: const WelcomeScreen(),
       routes: {

@@ -168,6 +168,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             'awaiting_confirmation',
             'waiting_payment',
             'pickup_validation',
+            'arrived',
+            'waiting_user_validation',
+            'picked_up',
             'completed',
           ],
         )
@@ -227,6 +230,13 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                     id: orderId.hashCode & 0x7fffffff,
                     title: 'Validasi Pengambilan',
                     body: 'Silakan konfirmasi ambil sampah di order.',
+                  );
+                  break;
+                case 'waiting_user_validation':
+                  NotificationService().showLocal(
+                    id: orderId.hashCode & 0x7fffffff,
+                    title: 'Menunggu Validasi User',
+                    body: 'User akan memvalidasi pengambilan Anda.',
                   );
                   break;
                 case 'completed':
@@ -792,6 +802,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                           'awaiting_confirmation',
                           'waiting_payment',
                           'pickup_validation',
+                          'arrived',
+                          'waiting_user_validation',
+                          'picked_up',
                         ],
                       )
                       .limit(1)

@@ -11,8 +11,7 @@ class ChatMessage {
   final Timestamp createdAt;
   final Timestamp? readAt; // null = belum dibaca
 
-  final String type; // 'text' | 'image' | 'audio' | 'system'
-  final int? durationMs; // khusus audio (opsional)
+  final String type; // 'text' | 'image' | 'system'
 
   ChatMessage({
     required this.id,
@@ -23,32 +22,29 @@ class ChatMessage {
     required this.createdAt,
     this.readAt,
     this.type = 'text',
-    this.durationMs,
   });
 
-  factory ChatMessage.fromDoc(DocumentSnapshot doc) {
-    final d = doc.data() as Map<String, dynamic>;
+  factory ChatMessage.fromMap(Map<String, dynamic> map) {
     return ChatMessage(
-      id: doc.id,
-      orderId: d['order_id'],
-      senderId: d['sender_id'],
-      senderRole: d['sender_role'],
-      message: d['message'],
-      createdAt: d['created_at'],
-      readAt: d['read_at'],
-      type: d['type'] ?? 'text',
-      durationMs: d['duration_ms'],
+      id: map['id'],
+      orderId: map['orderId'],
+      senderId: map['senderId'],
+      senderRole: map['senderRole'],
+      message: map['message'],
+      createdAt: map['createdAt'],
+      readAt: map['readAt'],
+      type: map['type'] ?? 'text',
     );
   }
 
   Map<String, dynamic> toMap() => {
-    'order_id': orderId,
-    'sender_id': senderId,
-    'sender_role': senderRole,
+    'id': id,
+    'orderId': orderId,
+    'senderId': senderId,
+    'senderRole': senderRole,
     'message': message,
-    'created_at': createdAt,
-    'read_at': readAt,
+    'createdAt': createdAt,
+    'readAt': readAt,
     'type': type,
-    if (durationMs != null) 'duration_ms': durationMs,
   };
 }

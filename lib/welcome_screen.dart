@@ -44,7 +44,7 @@ class WelcomeScreen extends StatelessWidget {
 
                   // 🔹 Judul
                   Text(
-                    'Selamat Datang di GotRush!',
+                    'Selamat Datang di GoTrash',
                     style: GoogleFonts.poppins(
                       fontSize: 31,
                       fontWeight: FontWeight.bold,

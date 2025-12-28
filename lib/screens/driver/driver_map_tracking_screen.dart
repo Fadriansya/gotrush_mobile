@@ -7,15 +7,18 @@ import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import '../../../services/auth_service.dart';
 import '../../services/order_service.dart';
+import '../../services/notification_service.dart';
 
 class DriverMapTrackingScreen extends StatefulWidget {
   final String orderId;
   final firestore.GeoPoint userLocation;
+  final String? watchDriverId; // optional: override driver to watch
 
   const DriverMapTrackingScreen({
     super.key,
     required this.orderId,
     required this.userLocation,
+    this.watchDriverId,
   });
 
   @override
@@ -44,7 +47,7 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
 
   void _listenToDriverLocation() {
     final auth = Provider.of<AuthService>(context, listen: false);
-    final driverId = auth.currentUser?.uid;
+    final driverId = widget.watchDriverId ?? auth.currentUser?.uid;
     if (driverId == null) return;
 
     _locationSub = firestore.FirebaseFirestore.instance
@@ -187,12 +190,65 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
               final order = snapshot.data!.data();
               if (order == null) return const SizedBox.shrink();
               final status = order['status'] as String? ?? '';
+              final paymentStatus = order['payment_status'] as String?;
+              final auth = Provider.of<AuthService>(context, listen: false);
+              final currentUid = auth.currentUser?.uid;
+              final isViewerDriver =
+                  (widget.watchDriverId == null) ||
+                  (widget.watchDriverId != null &&
+                      widget.watchDriverId == currentUid);
 
-              // Tampilkan tombol 'Sudah Tiba' saat driver dalam proses menuju lokasi
-              if (status == 'pickup_validation') {
+              // Tiba di Lokasi: muncul saat status 'active' atau 'awaiting_confirmation'
+              if (isViewerDriver &&
+                  (status == 'active' || status == 'awaiting_confirmation')) {
                 return FloatingActionButton.extended(
                   onPressed: () async {
-                    // Use OrderService to confirm pickup
+                    try {
+                      final auth = Provider.of<AuthService>(
+                        context,
+                        listen: false,
+                      );
+                      final driverId = auth.currentUser?.uid ?? '';
+                      await OrderService().driverArrived(
+                        orderId: widget.orderId,
+                        driverId: driverId,
+                      );
+                      // Opsional: beri tahu user secara lokal (FCM jika tersedia)
+                      try {
+                        final doc = await firestore.FirebaseFirestore.instance
+                            .collection('orders')
+                            .doc(widget.orderId)
+                            .get();
+                        final data = doc.data();
+                        final userId = data?['user_id'] as String?;
+                        if (userId != null && userId.isNotEmpty) {
+                          await NotificationService().notifyUserDriverArrived(
+                            orderId: widget.orderId,
+                            userId: userId,
+                          );
+                        }
+                      } catch (_) {}
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Ditandai: Tiba di lokasi'),
+                        ),
+                      );
+                    } catch (e) {
+                      debugPrint('Gagal tandai tiba: $e');
+                    }
+                  },
+                  label: const Text('Tiba di Lokasi'),
+                  icon: const Icon(Icons.place),
+                  backgroundColor: Colors.blue[700],
+                );
+              }
+
+              // Konfirmasi Ambil: muncul jika sudah dibayar dan driver sudah tiba
+              if (isViewerDriver &&
+                  (status == 'arrived') &&
+                  (paymentStatus == 'success' || paymentStatus == 'paid')) {
+                return FloatingActionButton.extended(
+                  onPressed: () async {
                     try {
                       final auth = Provider.of<AuthService>(
                         context,
@@ -203,7 +259,13 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
                         orderId: widget.orderId,
                         driverId: driverId,
                       );
-                      if (context.mounted) Navigator.of(context).pop();
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Konfirmasi ambil dikirim'),
+                          ),
+                        );
+                      }
                     } catch (e) {
                       debugPrint('Gagal konfirmasi ambil: $e');
                     }
@@ -213,6 +275,7 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
                   backgroundColor: Colors.orange[700],
                 );
               }
+
               return const SizedBox.shrink();
             },
           ),

@@ -74,13 +74,18 @@ class _OrderHistoryWidgetState extends State<OrderHistoryWidget> {
   }
 
   Query _buildQuery() {
+    final hiddenField = widget.role == 'user'
+        ? 'hidden_by_user'
+        : 'hidden_by_driver';
+
     return FirebaseFirestore.instance
-        .collection('order_history')
+        .collection('orders')
         .where(
           widget.role == 'user' ? 'user_id' : 'driver_id',
           isEqualTo: widget.currentUserId,
         )
         .where('status', isEqualTo: 'completed')
+        .where(hiddenField, isEqualTo: false)
         .orderBy('completed_at', descending: true);
   }
 
@@ -156,7 +161,7 @@ class _OrderHistoryWidgetState extends State<OrderHistoryWidget> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Hapus Riwayat'),
-        content: const Text('Pesanan ini akan dihapus permanen.'),
+        content: const Text('Pesanan ini akan dihapus dari riwayat Anda.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -172,10 +177,15 @@ class _OrderHistoryWidgetState extends State<OrderHistoryWidget> {
     );
 
     if (ok == true) {
-      await FirebaseFirestore.instance
-          .collection('order_history')
-          .doc(orderId)
-          .delete();
+      // Instead of deleting, we update a field to hide it per user
+      final fieldToUpdate = widget.role == 'user'
+          ? 'hidden_by_user'
+          : 'hidden_by_driver';
+
+      await FirebaseFirestore.instance.collection('orders').doc(orderId).update(
+        {fieldToUpdate: true},
+      );
+
       if (mounted) {
         setState(() {
           _docs.removeWhere((d) => d.id == orderId);

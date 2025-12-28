@@ -13,6 +13,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   String email = '', password = '';
   bool isLoading = false;
+  bool _obscurePassword = true;
   final _formKey = GlobalKey<FormState>();
 
   Future<void> _handleLogin(AuthService auth) async {
@@ -62,7 +63,8 @@ class _LoginScreenState extends State<LoginScreen> {
       String message;
       switch (e.code) {
         case 'wrong-password':
-          message = 'Password salah — silakan coba lagi.';
+          // Pesan khusus sesuai permintaan
+          message = 'Password tidak ada, coba masukkan ulang';
         case 'user-not-found':
           message = 'Email belum terdaftar. Coba daftar terlebih dahulu.';
         case 'user-disabled':
@@ -181,9 +183,25 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       keyboardType: TextInputType.emailAddress,
                       onChanged: (v) => email = v,
-                      validator: (v) => v == null || v.isEmpty
-                          ? 'Email tidak boleh kosong'
-                          : null,
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) {
+                          return 'Email tidak boleh kosong';
+                        }
+                        final val = v.trim().toLowerCase();
+                        // Validasi hanya boleh email Gmail
+                        final isGmail = val.endsWith('@gmail.com');
+                        if (!isGmail) {
+                          return 'Hanya email @gmail.com yang diizinkan';
+                        }
+                        // Cek pola dasar email
+                        final emailRegex = RegExp(
+                          r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+                        );
+                        if (!emailRegex.hasMatch(val)) {
+                          return 'Format email tidak valid';
+                        }
+                        return null;
+                      },
                     ),
                     const SizedBox(height: 18),
                     TextFormField(
@@ -195,8 +213,23 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         filled: true,
                         fillColor: Colors.green[50],
+                        suffixIcon: IconButton(
+                          tooltip: _obscurePassword
+                              ? 'Tampilkan password'
+                              : 'Sembunyikan password',
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_off
+                                : Icons.visibility,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _obscurePassword = !_obscurePassword;
+                            });
+                          },
+                        ),
                       ),
-                      obscureText: true,
+                      obscureText: _obscurePassword,
                       onChanged: (v) => password = v,
                       validator: (v) => v == null || v.isEmpty
                           ? 'Password tidak boleh kosong'

@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import 'chat_screen.dart';
@@ -40,7 +41,7 @@ extension ColorExtension on Color {
   }
 }
 
-class OrderDetailScreen extends StatelessWidget {
+class OrderDetailScreen extends StatefulWidget {
   final Map<String, dynamic> order;
   final String orderId;
   final int? unreadCount;
@@ -53,76 +54,221 @@ class OrderDetailScreen extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final String status = order["status"]?.toString() ?? "N/A";
-    final Color statusColor = _getStatusColor(status);
+  State<OrderDetailScreen> createState() => _OrderDetailScreenState();
+}
 
+class _OrderDetailScreenState extends State<OrderDetailScreen> {
+  late Map<String, dynamic> _orderData;
+  late int _unreadCount;
+
+  @override
+  void initState() {
+    super.initState();
+    _orderData = widget.order;
+    _unreadCount = widget.unreadCount ?? 0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 140.0,
-            floating: false,
-            pinned: true,
-            iconTheme: const IconThemeData(color: Colors.white),
-            actions: _buildAppBarActions(context, status),
-            flexibleSpace: FlexibleSpaceBar(
-              centerTitle: true,
+      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
+            .collection('orders')
+            .doc(widget.orderId)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasData && snapshot.data!.exists) {
+            _orderData = snapshot.data!.data()!;
+            // Juga update unread count jika ada di meta
+            if (snapshot.data!.data()!.containsKey('chat_meta')) {
+              final meta =
+                  snapshot.data!.get('chat_meta') as Map<String, dynamic>?;
+              if (meta != null) {
+                final auth = Provider.of<AuthService>(context, listen: false);
+                final role = _orderData['user_id'] == auth.currentUser?.uid
+                    ? 'user'
+                    : 'driver';
+                _unreadCount = role == 'user'
+                    ? (meta['unread_user'] ?? 0)
+                    : (meta['unread_driver'] ?? 0);
+              }
+            }
+          }
 
-              title: Text(
-                "Detail Pesanan",
-                style: GoogleFonts.poppins(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 20,
-                ),
-              ),
-              background: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      statusColor.withValues(alpha: 0.8),
-                      statusColor.withValues(alpha: 0.7),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+          final String status = _orderData["status"]?.toString() ?? "N/A";
+          final Color statusColor = _getStatusColor(status);
+
+          return CustomScrollView(
+            slivers: [
+              SliverAppBar(
+                expandedHeight: 140.0,
+                floating: false,
+                pinned: true,
+                iconTheme: const IconThemeData(color: Colors.white),
+                actions: _buildAppBarActions(context, status),
+                flexibleSpace: FlexibleSpaceBar(
+                  centerTitle: true,
+                  title: Text(
+                    "Detail Pesanan",
+                    style: GoogleFonts.poppins(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 20,
+                    ),
+                  ),
+                  background: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          statusColor.withValues(alpha: 0.8),
+                          statusColor.withValues(alpha: 0.7),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 60, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [_buildStatusBadge(status)],
+                      ),
+                    ),
                   ),
                 ),
+              ),
+              SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 60, 16, 16),
+                  padding: const EdgeInsets.all(16.0),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [_buildStatusBadge(status)],
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSectionTitle("Informasi Pengguna"),
+                      _buildInfoCard([
+                        _buildInfoRow(
+                          "Nama",
+                          _orderData["name"]?.toString() ?? "N/A",
+                        ),
+                        _buildInfoRow(
+                          "Telepon",
+                          _orderData["phone_number"]?.toString() ?? "N/A",
+                        ),
+                        _buildInfoRow(
+                          "Alamat",
+                          _orderData["address"]?.toString() ?? "N/A",
+                        ),
+                      ]),
+                      const SizedBox(height: 20),
+                      _buildSectionTitle("Detail Sampah"),
+                      _buildInfoCard([
+                        _buildInfoRow(
+                          "Berat Awal",
+                          "${_orderData["weight"]?.toStringAsFixed(1) ?? "0"} kg",
+                        ),
+                        _buildInfoRow(
+                          "Berat Final",
+                          "${_orderData["driver_weight"]?.toStringAsFixed(1) ?? "0"} kg",
+                        ),
+                      ]),
+                      const SizedBox(height: 20),
+                      _buildSectionTitle("Informasi Pembayaran"),
+                      _buildInfoCard([
+                        _buildInfoRow(
+                          "Harga",
+                          "Rp ${NumberFormat("#,##0", "id_ID").format(_orderData["price"] ?? 0)}",
+                        ),
+                        _buildInfoRow(
+                          "Status Pembayaran",
+                          _orderData["payment_status"]?.toString() ?? "N/A",
+                        ),
+                      ]),
+                      const SizedBox(height: 20),
+                      _buildSectionTitle("Informasi Waktu"),
+                      _buildInfoCard([
+                        _buildInfoRow(
+                          "Dibuat",
+                          _formatDate(_orderData["created_at"] as Timestamp?),
+                        ),
+                        _buildInfoRow(
+                          "Penjemputan",
+                          _formatDate(_orderData["pickup_date"] as Timestamp?),
+                        ),
+                        _buildInfoRow(
+                          "Selesai",
+                          _formatDate(_orderData["completed_at"] as Timestamp?),
+                        ),
+                      ]),
+                    ],
                   ),
                 ),
               ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Text(
+        title,
+        style: GoogleFonts.poppins(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: Colors.black87,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoCard(List<Widget> children) {
+    return Card(
+      elevation: 2,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(children: children),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: GoogleFonts.poppins(color: Colors.black54, fontSize: 14),
             ),
           ),
-
-          SliverList(
-            delegate: SliverChildListDelegate([
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: [
-                    _buildSummaryCard(),
-                    const SizedBox(height: 24),
-                    _buildInfoSection(),
-                  ],
-                ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              value,
+              style: GoogleFonts.poppins(
+                color: Colors.black87,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
               ),
-            ]),
+            ),
           ),
         ],
       ),
     );
   }
 
-  /// ================================
-  /// STATUS BADGE
-  /// ================================
   Widget _buildStatusBadge(String status) {
     final statusText = status.toUpperCase();
     final statusColor = _getStatusColor(status);
@@ -145,222 +291,7 @@ class OrderDetailScreen extends StatelessWidget {
     );
   }
 
-  /// ================================
-  /// SUMMARY CARD (Harga, Berat, Jarak)
-  /// ================================
-  Widget _buildSummaryCard() {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _summaryItem(
-              icon: Icons.monetization_on_outlined,
-              title: "Harga",
-              value: "Rp ${order["price"] ?? 0}",
-              iconColor: Colors.blueAccent,
-            ),
-            Container(width: 1, height: 50, color: Colors.grey[200]),
-            _summaryItem(
-              icon: Icons.fitness_center,
-              title: "Berat",
-              value: "${order["weight"] ?? 0} kg",
-              iconColor: Colors.orangeAccent,
-            ),
-            Container(width: 1, height: 50, color: Colors.grey[200]),
-            _summaryItem(
-              icon: Icons.route,
-              title: "Jarak",
-              value: "${order["distance"] ?? 'N/A'} km",
-              iconColor: Colors.redAccent,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _summaryItem({
-    required IconData icon,
-    required String title,
-    required String value,
-    required Color iconColor,
-  }) {
-    return Column(
-      children: [
-        Icon(icon, color: iconColor, size: 28),
-        const SizedBox(height: 4),
-        Text(
-          title,
-          style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 12),
-        ),
-        Text(
-          value,
-          style: GoogleFonts.poppins(
-            color: Colors.black87,
-            fontSize: 15,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// ================================
-  /// DETAIL ITEM LIST
-  /// ================================
-  Widget _buildInfoSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Judul Bagian
-        Text(
-          "Detail Informasi",
-          style: GoogleFonts.poppins(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.grey.shade200),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16.0,
-              vertical: 8.0,
-            ),
-            child: Column(
-              children: [
-                _infoItem(
-                  Icons.receipt_long,
-                  "ID Pesanan",
-                  orderId,
-                  showDivider: true,
-                ),
-                // Tampilkan unread hanya untuk status aktif (sembunyikan saat completed)
-                if ((order["status"]?.toString().toLowerCase() ?? "") !=
-                    "completed")
-                  _infoItem(
-                    Icons.chat_bubble_outline,
-                    "Pesan Belum Dibaca",
-                    unreadCount ?? 0,
-                    showDivider: true,
-                  ),
-                _infoItem(Icons.location_on, "Alamat", order["address"]),
-                _infoItem(
-                  Icons.person_outline,
-                  "Nama Pelanggan",
-                  order["name"],
-                  showDivider: true,
-                ),
-                _infoItem(
-                  Icons.call_outlined,
-                  "Telepon",
-                  order["phone_number"],
-                  showDivider: true,
-                ),
-                _infoItem(
-                  Icons.calendar_today,
-                  "Tanggal Pickup",
-                  _formatDate(order["pickup_date"]),
-                  showDivider: true,
-                ),
-                _infoItem(
-                  Icons.access_time_outlined,
-                  "Dibuat Pada",
-                  order["created_at"] != null
-                      ? _formatDate(order["created_at"])
-                      : "-",
-                  showDivider: true,
-                ),
-                _infoItem(
-                  Icons.tag_outlined,
-                  "Pemesan",
-                  order["name"],
-                  showDivider: true,
-                ),
-                _infoItem(
-                  Icons.motorcycle_outlined,
-                  "Driver ID",
-                  order["driver_id"],
-                  showDivider: false,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _infoItem(
-    IconData icon,
-    String label,
-    dynamic rawValue, {
-    bool showDivider = true,
-  }) {
-    final value = rawValue?.toString() ?? "Belum tersedia";
-
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10.0),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                icon,
-                size: 24,
-                color: label == "ID Pesanan"
-                    ? Colors.blueGrey.shade700
-                    : Colors.blueGrey,
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      label,
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        color: Colors.grey[500],
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      value,
-                      style: GoogleFonts.poppins(
-                        fontSize: 14,
-                        fontWeight: label == "ID Pesanan"
-                            ? FontWeight.bold
-                            : FontWeight.w500,
-                        color: Colors.black87,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (showDivider) const Divider(height: 1, thickness: 0.8, indent: 40),
-      ],
-    );
-  }
-
   List<Widget> _buildAppBarActions(BuildContext context, String status) {
-    // Show chat button for active flow statuses
     final chatStatuses = [
       'active',
       'awaiting_confirmation',
@@ -378,8 +309,7 @@ class OrderDetailScreen extends StatelessWidget {
       tooltip: 'Chat',
     );
 
-    // Tampilkan badge unread hanya untuk status aktif (bukan 'completed')
-    if ((unreadCount ?? 0) > 0 && status.toLowerCase() != 'completed') {
+    if (_unreadCount > 0 && status.toLowerCase() != 'completed') {
       chatButton = Stack(
         clipBehavior: Clip.none,
         children: [
@@ -394,7 +324,7 @@ class OrderDetailScreen extends StatelessWidget {
                 shape: BoxShape.circle,
               ),
               child: Text(
-                (unreadCount ?? 0).toString(),
+                _unreadCount.toString(),
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 10,
@@ -415,17 +345,17 @@ class OrderDetailScreen extends StatelessWidget {
     final currentUser = auth.currentUser;
     if (currentUser == null) return;
 
-    final currentUserRole = order['user_id'] == currentUser.uid
+    final currentUserRole = _orderData['user_id'] == currentUser.uid
         ? 'user'
         : 'driver';
     final otherUserName = currentUserRole == 'user'
         ? 'Driver'
-        : (order['name'] as String?) ?? 'Pelanggan';
+        : (_orderData['name'] as String?) ?? 'Pelanggan';
 
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ChatScreen(
-          orderId: orderId,
+          orderId: widget.orderId,
           otherUserName: otherUserName,
           currentUserRole: currentUserRole,
         ),
@@ -433,21 +363,8 @@ class OrderDetailScreen extends StatelessWidget {
     );
   }
 
-  String _formatDate(dynamic value) {
-    if (value == null) return "-";
-
-    if (value is Timestamp) {
-      final date = value.toDate();
-      final year = date.year;
-      final month = date.month.toString().padLeft(2, '0');
-      final day = date.day.toString().padLeft(2, '0');
-      final hour = date.hour.toString().padLeft(2, '0');
-      final minute = date.minute.toString().padLeft(2, '0');
-      return "$day/$month/$year $hour:$minute";
-    }
-
-    if (value is String) return value;
-
-    return "-";
+  String _formatDate(Timestamp? ts) {
+    if (ts == null) return "N/A";
+    return DateFormat('d MMM yyyy, HH:mm', 'id_ID').format(ts.toDate());
   }
 }

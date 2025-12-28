@@ -35,8 +35,6 @@ dependencies:
   firebase_auth: ^5.1.1
   cloud_firestore: ^5.1.1
   firebase_storage: ^12.4.10
-  audioplayers: ^5.2.1
-  record: ^6.1.2
   path_provider: ^2.1.5
   path: ^1.9.0
   shared_preferences: ^2.2.3

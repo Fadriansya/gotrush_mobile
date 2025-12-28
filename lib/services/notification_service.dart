@@ -121,6 +121,18 @@ class NotificationService {
     // TODO: kirim FCM ke userId jika backend tersedia
   }
 
+  Future<void> notifyUserDriverArrived({
+    required String orderId,
+    required String userId,
+  }) async {
+    await showLocal(
+      id: safeId('user_arrived_$orderId'),
+      title: 'Driver Tiba di Lokasi',
+      body: 'Driver telah tiba untuk order $orderId. Siapkan pengambilan.',
+    );
+    // TODO: kirim FCM ke userId jika backend tersedia
+  }
+
   Future<void> notifyBothCompleted({
     required String orderId,
     required String userId,

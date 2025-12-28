@@ -70,7 +70,8 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
           final pickupTs = data['pickup_date'] as Timestamp?;
           final driverId = (data['driver_id'] ?? '') as String;
           final userId = (data['user_id'] ?? '') as String;
-          final pickupConfirmed = (data['pickup_confirmed'] ?? false) as bool;
+          // Alur baru tidak memakai pickup_confirmed; gunakan status
+          final paymentStatus = (data['payment_status'] ?? '') as String;
 
           final pickupDateStr = pickupTs != null
               ? DateFormat(
@@ -156,17 +157,28 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    if (widget.role == 'driver' && data['location'] != null)
+                    if (data['location'] != null)
                       Expanded(
                         child: OutlinedButton.icon(
                           onPressed: () {
                             final loc = data['location'] as GeoPoint;
                             Navigator.of(context).push(
                               MaterialPageRoute(
-                                builder: (_) => DriverMapTrackingScreen(
-                                  orderId: widget.orderId,
-                                  userLocation: loc,
-                                ),
+                                builder: (_) {
+                                  if (widget.role == 'driver') {
+                                    return DriverMapTrackingScreen(
+                                      orderId: widget.orderId,
+                                      userLocation: loc,
+                                    );
+                                  }
+                                  return DriverMapTrackingScreen(
+                                    orderId: widget.orderId,
+                                    userLocation: loc,
+                                    watchDriverId: driverId.isEmpty
+                                        ? null
+                                        : driverId,
+                                  );
+                                },
                               ),
                             );
                           },
@@ -188,7 +200,8 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
                   driverId: driverId,
                   userId: userId,
                   price: price,
-                  pickupConfirmed: pickupConfirmed,
+                  paymentStatus: paymentStatus,
+                  pickupConfirmed: false,
                 ),
               ],
             ),
@@ -207,14 +220,342 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
     required String driverId,
     required String userId,
     required double price,
+    required String paymentStatus,
     required bool pickupConfirmed,
   }) {
-    final isDriver = widget.role == 'driver';
+    // USER UI
+    if (widget.role == 'user') {
+      // 1. USER: Validasi Pengambilan
+      if (status == 'waiting_user_validation') {
+        return Card(
+          color: Colors.orange.withOpacity(0.06),
+          child: Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Validasi Pengambilan',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                const Text('Apakah driver sudah mengambil sampah?'),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.close),
+                        label: const Text('Tidak'),
+                        onPressed: () async {
+                          try {
+                            final auth = Provider.of<AuthService>(
+                              context,
+                              listen: false,
+                            );
+                            final user = auth.currentUser;
+                            if (user == null) return;
+                            await OrderService().userRespondPickupValidation(
+                              orderId: orderId,
+                              userId: user.uid,
+                              confirmed: false,
+                            );
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Sanggahan terkirim. Menunggu driver konfirmasi ulang.',
+                                ),
+                              ),
+                            );
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Gagal: $e')),
+                            );
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green[700],
+                          foregroundColor: Colors.white,
+                        ),
+                        icon: const Icon(Icons.check_circle),
+                        label: const Text('Ya'),
+                        onPressed: () async {
+                          try {
+                            final auth = Provider.of<AuthService>(
+                              context,
+                              listen: false,
+                            );
+                            final user = auth.currentUser;
+                            if (user == null) return;
+                            await OrderService().userRespondPickupValidation(
+                              orderId: orderId,
+                              userId: user.uid,
+                              confirmed: true,
+                            );
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Pengambilan divalidasi. Menunggu driver menyelesaikan.',
+                                ),
+                              ),
+                            );
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Gagal: $e')),
+                            );
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
+      // 2. USER: Verifikasi berat
+      if (status == 'awaiting_confirmation') {
+        if (weightStatus == 'proposed') {
+          return Card(
+            color: Colors.teal.withOpacity(0.05),
+            child: Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Verifikasi Berat',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Berat yang diajukan driver: ${driverWeight.toStringAsFixed(2)} kg',
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green[700],
+                            foregroundColor: Colors.white,
+                          ),
+                          icon: const Icon(Icons.check),
+                          label: const Text('Setuju'),
+                          onPressed: () async {
+                            try {
+                              final auth = Provider.of<AuthService>(
+                                context,
+                                listen: false,
+                              );
+                              final user = auth.currentUser;
+                              if (user == null) return;
+                              await OrderService().confirmWeightByUser(
+                                orderId: orderId,
+                                userId: user.uid,
+                              );
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Berat disetujui. Lanjut ke pembayaran.',
+                                  ),
+                                ),
+                              );
+                            } catch (e) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Gagal: $e')),
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.close),
+                          label: const Text('Sanggah'),
+                          onPressed: () async {
+                            try {
+                              final auth = Provider.of<AuthService>(
+                                context,
+                                listen: false,
+                              );
+                              final user = auth.currentUser;
+                              if (user == null) return;
+                              await OrderService().disputeWeightByUser(
+                                orderId: orderId,
+                                userId: user.uid,
+                              );
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Sanggahan terkirim. Menunggu koreksi driver.',
+                                  ),
+                                ),
+                              );
+                            } catch (e) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Gagal: $e')),
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+        if (weightStatus == 'disputed') {
+          return const Text(
+            'Anda telah menyanggah. Menunggu koreksi dari driver...',
+          );
+        }
+      }
+
+      // 3. USER: Tombol Bayar
+      if (status == 'waiting_payment') {
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: ElevatedButton.icon(
+            icon: const Icon(Icons.payment),
+            label: const Text('Bayar'),
+            onPressed: () async {
+              // Trigger payment via midtrans
+              final auth = Provider.of<AuthService>(context, listen: false);
+              final user = auth.currentUser;
+              if (user == null) return;
+              final snapUrl = await getMidtransSnapUrl(
+                orderId: orderId,
+                grossAmount: price.round(),
+                name: user.displayName ?? 'User',
+                email: user.email ?? 'user@example.com',
+              );
+              if (snapUrl == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Gagal memulai pembayaran')),
+                );
+                return;
+              }
+              // Open webview
+              await Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => MidtransPaymentWebView(
+                    snapUrl: snapUrl,
+                    orderId: orderId,
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      }
+
+      // 4. USER: Info setelah bayar
+      if ((paymentStatus == 'success' || paymentStatus == 'paid') &&
+          status != 'waiting_user_validation' &&
+          status != 'picked_up' &&
+          status != 'completed') {
+        return const Text(
+          'Pembayaran berhasil. Menunggu driver mengambil sampah.',
+          style: TextStyle(color: Colors.green),
+        );
+      }
+
+      // 5. USER: Status Selesai
+      if (status == 'completed') {
+        return const Text('Order selesai. Terima kasih!');
+      }
+
+      // 6. USER: Fallback
+      return const SizedBox.shrink();
+    }
 
     // DRIVER UI
-    if (isDriver) {
-      // Allow propose/resubmit weight when order is active or awaiting confirmation and not yet approved
+    if (widget.role == 'driver') {
+      // 1. DRIVER: Tombol Selesaikan Order
+      if (status == 'picked_up') {
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: ElevatedButton.icon(
+            icon: const Icon(Icons.done_all),
+            label: const Text('Selesaikan Order'),
+            onPressed: () async {
+              try {
+                await OrderService().driverCompleteOrder(
+                  orderId: orderId,
+                  driverId: driverId,
+                );
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Order berhasil diselesaikan')),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Gagal menyelesaikan: $e')),
+                );
+              }
+            },
+          ),
+        );
+      }
+
+      // 2. DRIVER: Tombol Konfirmasi Ambil Sampah (setelah user bayar)
+      if ((paymentStatus == 'success' || paymentStatus == 'paid') &&
+          status != 'waiting_user_validation' &&
+          status != 'picked_up' &&
+          status != 'completed') {
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: ElevatedButton.icon(
+            icon: const Icon(Icons.shopping_bag),
+            label: const Text('Konfirmasi Ambil Sampah'),
+            onPressed: () async {
+              try {
+                await OrderService().driverConfirmPickup(
+                  orderId: orderId,
+                  driverId: driverId,
+                );
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Konfirmasi terkirim. Menunggu validasi pengguna.',
+                    ),
+                  ),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('Gagal konfirmasi: $e')));
+              }
+            },
+          ),
+        );
+      }
+
+      // 3. DRIVER: Menunggu validasi dari user
+      if (status == 'waiting_user_validation') {
+        return const Text(
+          'Menunggu validasi pengambilan dari pengguna...',
+          style: TextStyle(color: Colors.orange),
+        );
+      }
+
+      // 4. DRIVER: Form ajukan berat
       if (status == 'active' ||
+          status == 'arrived' ||
           (status == 'awaiting_confirmation' && weightStatus != 'approved')) {
         if (_weightCtrl.text.isEmpty && driverWeight > 0) {
           _weightCtrl.text = driverWeight.toStringAsFixed(2);
@@ -283,275 +624,24 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
           ],
         );
       }
-      // After agreed or other statuses, show info
-      if (status == 'waiting_payment' || weightStatus == 'approved') {
-        return Text('Berat disetujui: ${driverWeight.toStringAsFixed(2)} kg');
+
+      // 5. DRIVER: Info setelah berat disetujui / menunggu pembayaran
+      if (status == 'waiting_payment' ||
+          (weightStatus == 'approved' &&
+              paymentStatus != 'success' &&
+              paymentStatus != 'paid')) {
+        return Text(
+          'Berat disetujui: ${driverWeight.toStringAsFixed(2)} kg. Menunggu pembayaran dari user.',
+        );
       }
+
+      // 6. DRIVER: Status Selesai
+      if (status == 'completed') {
+        return const Text('Order selesai. Terima kasih!');
+      }
+
+      // 7. DRIVER: Fallback
       return const Text('Menunggu proses timbangan dimulai.');
-    }
-
-    // USER UI
-    if (status == 'awaiting_confirmation') {
-      if (weightStatus == 'proposed') {
-        return Card(
-          color: Colors.teal.withOpacity(0.05),
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Verifikasi Berat',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Berat yang diajukan driver: ${driverWeight.toStringAsFixed(2)} kg',
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green[700],
-                          foregroundColor: Colors.white,
-                        ),
-                        icon: const Icon(Icons.check),
-                        label: const Text('Setuju'),
-                        onPressed: () async {
-                          try {
-                            final auth = Provider.of<AuthService>(
-                              context,
-                              listen: false,
-                            );
-                            final user = auth.currentUser;
-                            if (user == null) return;
-                            await OrderService().confirmWeightByUser(
-                              orderId: orderId,
-                              userId: user.uid,
-                            );
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Berat disetujui. Lanjut ke pembayaran.',
-                                ),
-                              ),
-                            );
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Gagal: $e')),
-                            );
-                          }
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.close),
-                        label: const Text('Sanggah'),
-                        onPressed: () async {
-                          try {
-                            final auth = Provider.of<AuthService>(
-                              context,
-                              listen: false,
-                            );
-                            final user = auth.currentUser;
-                            if (user == null) return;
-                            await OrderService().disputeWeightByUser(
-                              orderId: orderId,
-                              userId: user.uid,
-                            );
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Sanggahan terkirim. Menunggu koreksi driver.',
-                                ),
-                              ),
-                            );
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Gagal: $e')),
-                            );
-                          }
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      }
-      if (weightStatus == 'disputed') {
-        return const Text(
-          'Anda telah menyanggah. Menunggu koreksi dari driver...',
-        );
-      }
-    }
-
-    if (status == 'waiting_payment') {
-      return Align(
-        alignment: Alignment.centerLeft,
-        child: ElevatedButton.icon(
-          icon: const Icon(Icons.payment),
-          label: const Text('Bayar'),
-          onPressed: () async {
-            // Trigger payment via midtrans
-            final auth = Provider.of<AuthService>(context, listen: false);
-            final user = auth.currentUser;
-            if (user == null) return;
-            final snapUrl = await getMidtransSnapUrl(
-              orderId: orderId,
-              grossAmount: price.round(),
-              name: user.displayName ?? 'User',
-              email: user.email ?? 'user@example.com',
-            );
-            if (snapUrl == null) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Gagal memulai pembayaran')),
-              );
-              return;
-            }
-            // Open webview
-            await Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) =>
-                    MidtransPaymentWebView(snapUrl: snapUrl, orderId: orderId),
-              ),
-            );
-          },
-        ),
-      );
-    }
-
-    // DRIVER: Confirm pickup when payment is done
-    if (widget.role == 'driver' && status == 'pickup_validation') {
-      if (!pickupConfirmed) {
-        return Align(
-          alignment: Alignment.centerLeft,
-          child: ElevatedButton.icon(
-            icon: const Icon(Icons.shopping_bag),
-            label: const Text('Konfirmasi Ambil Sampah'),
-            onPressed: () async {
-              try {
-                await OrderService().driverConfirmPickup(
-                  orderId: orderId,
-                  driverId: driverId,
-                );
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Konfirmasi ambil terkirim')),
-                );
-              } catch (e) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text('Gagal konfirmasi: $e')));
-              }
-            },
-          ),
-        );
-      } else {
-        return const Text('Menunggu validasi akhir dari pengguna...');
-      }
-    }
-
-    // USER: Final validation after driver confirms pickup
-    if (widget.role == 'user' && status == 'pickup_validation') {
-      if (pickupConfirmed) {
-        return Card(
-          color: Colors.orange.withOpacity(0.06),
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Validasi Akhir',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 8),
-                const Text('Apakah sampah sudah benar-benar diambil?'),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Belum'),
-                        onPressed: () async {
-                          try {
-                            await OrderService().driverResetPickupConfirmation(
-                              orderId: orderId,
-                              driverId: driverId,
-                            );
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Silakan minta driver konfirmasi kembali.',
-                                ),
-                              ),
-                            );
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Gagal: $e')),
-                            );
-                          }
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green[700],
-                          foregroundColor: Colors.white,
-                        ),
-                        icon: const Icon(Icons.check_circle),
-                        label: const Text('Ya'),
-                        onPressed: () async {
-                          try {
-                            final auth = Provider.of<AuthService>(
-                              context,
-                              listen: false,
-                            );
-                            final user = auth.currentUser;
-                            if (user == null) return;
-                            await OrderService().userFinalValidation(
-                              orderId: orderId,
-                              userId: user.uid,
-                              confirmed: true,
-                            );
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Order selesai. Terima kasih!'),
-                              ),
-                            );
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Gagal: $e')),
-                            );
-                          }
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      } else {
-        return const Text('Menunggu driver konfirmasi pengambilan...');
-      }
-    }
-
-    if (status == 'completed') {
-      return const Text('Order selesai. Terima kasih!');
     }
 
     return const SizedBox.shrink();
