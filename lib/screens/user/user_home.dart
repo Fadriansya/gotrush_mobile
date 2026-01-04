@@ -223,7 +223,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         await notificationService.showLocal(
           id: orderId.hashCode + 8,
           title: 'Driver Tiba di Lokasi',
-          body: 'Driver telah tiba. Anda dapat memantau pergerakannya.',
+          body: 'Driver telah tiba. Siapkan sampah anda.',
         );
         setState(() {
           _activeOrderId = orderId;
@@ -616,6 +616,8 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF3F6F4),
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        centerTitle: true,
         title: Text(
           _selectedIndex == 0
               ? 'Beranda Pengguna'
@@ -676,9 +678,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       ),
       const SizedBox(height: 24),
     ];
-
-    // Card pesanan aktif tidak ditampilkan lagi. Navigasi akan langsung
-    // mengarah ke halaman khusus Order Room ketika status 'active'.
 
     // Add menu items
     for (final item in menuItems) {

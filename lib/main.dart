@@ -29,9 +29,7 @@ void main() async {
   // Init Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // =====================================================
   // APP CHECK — MODE PALING STABIL
-  // =====================================================
   await FirebaseAppCheck.instance.activate(
     androidProvider: AndroidProvider.playIntegrity,
     appleProvider: AppleProvider.deviceCheck,

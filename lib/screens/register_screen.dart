@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import '../utils/alerts.dart';
@@ -160,6 +161,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       // Phone
                       TextFormField(
                         controller: _phoneCtrl,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter
+                              .digitsOnly, // ⬅ hanya angka
+                        ],
                         decoration: InputDecoration(
                           labelText: 'Nomor Telepon',
                           prefixIcon: const Icon(Icons.phone),
@@ -169,11 +175,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           filled: true,
                           fillColor: Colors.green[50],
                         ),
-                        keyboardType: TextInputType.phone,
-                        validator: (v) => (v == null || v.trim().isEmpty)
-                            ? 'Telepon wajib diisi'
-                            : null,
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) {
+                            return 'Nomor telepon wajib diisi';
+                          }
+
+                          if (!RegExp(r'^\d+$').hasMatch(v)) {
+                            return 'Nomor telepon hanya boleh angka';
+                          }
+
+                          if (v.length < 10) {
+                            return 'Nomor telepon minimal 10 digit';
+                          }
+
+                          return null;
+                        },
                       ),
+
                       const SizedBox(height: 12),
 
                       // Email
