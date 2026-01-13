@@ -1,4 +1,3 @@
-// payment.dart
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -11,7 +10,6 @@ Future<String?> getMidtransSnapUrl({
   required String name,
   required String email,
 }) async {
-  // === PAYLOAD HARUS SESUAI DENGAN BACKEND ===
   final payload = {
     "order_id": orderId,
     "gross_amount": grossAmount,

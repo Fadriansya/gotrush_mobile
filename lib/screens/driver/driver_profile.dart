@@ -1,4 +1,3 @@
-// driver_profile.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -8,17 +7,14 @@ import '../../utils/alerts.dart';
 
 class DriverProfile extends StatefulWidget {
   const DriverProfile({super.key});
-
   @override
   State<DriverProfile> createState() => _DriverProfileState();
 }
 
 class _DriverProfileState extends State<DriverProfile> {
   final _formKey = GlobalKey<FormState>();
-
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
-
   final _currentPasswordController = TextEditingController();
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
@@ -47,21 +43,17 @@ class _DriverProfileState extends State<DriverProfile> {
 
   Future<void> _loadDriverData() async {
     setState(() => _isLoading = true);
-
     try {
       final auth = Provider.of<AuthService>(context, listen: false);
       final user = auth.currentUser;
-
       if (user != null) {
         _isGoogleUser = user.providerData.any(
           (p) => p.providerId == "google.com",
         );
-
         final doc = await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
             .get();
-
         if (doc.exists) {
           final data = doc.data()!;
           _nameController.text = data['name'] ?? '';
@@ -116,25 +108,20 @@ class _DriverProfileState extends State<DriverProfile> {
         );
       },
     );
-
     return result ?? false;
   }
 
   Future<void> _updateProfile() async {
     if (_isUpdatingProfile) return;
     if (!_formKey.currentState!.validate()) return;
-
     final confirm = await _showConfirmationDialog(
       title: "Konfirmasi Perubahan",
       message: "Yakin ingin memperbarui profil?",
     );
     if (!confirm) return;
-
     setState(() => _isUpdatingProfile = true);
-
     try {
       final user = FirebaseAuth.instance.currentUser!;
-
       await user.updateDisplayName(_nameController.text.trim());
       await FirebaseFirestore.instance.collection("users").doc(user.uid).update(
         {
@@ -158,44 +145,36 @@ class _DriverProfileState extends State<DriverProfile> {
   Future<void> _updatePassword() async {
     if (_isUpdatingPassword) return;
     if (_isGoogleUser) return;
-
     final confirm = await _showConfirmationDialog(
       title: "Konfirmasi Ubah Password",
       message: "Yakin ingin mengganti password?",
     );
     if (!confirm) return;
-
     if (_currentPasswordController.text.isEmpty ||
         _newPasswordController.text.isEmpty ||
         _confirmPasswordController.text.isEmpty) {
       showAppSnackBar(context, "Semua field wajib diisi");
       return;
     }
-
     if (_newPasswordController.text.trim() !=
         _confirmPasswordController.text.trim()) {
       showAppSnackBar(context, "Password baru tidak sama");
       return;
     }
-
     setState(() => _isUpdatingPassword = true);
-
     try {
       final user = FirebaseAuth.instance.currentUser!;
       final cred = EmailAuthProvider.credential(
         email: user.email!,
         password: _currentPasswordController.text.trim(),
       );
-
       await user.reauthenticateWithCredential(cred);
       await user.updatePassword(_newPasswordController.text.trim());
-
       showAppSnackBar(
         context,
         "Password berhasil diganti",
         type: AlertType.success,
       );
-
       _currentPasswordController.clear();
       _newPasswordController.clear();
       _confirmPasswordController.clear();
@@ -214,7 +193,6 @@ class _DriverProfileState extends State<DriverProfile> {
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
-
     return Scaffold(
       backgroundColor: const Color(0xFFF7FAF7),
       body: SafeArea(
@@ -262,7 +240,7 @@ class _DriverProfileState extends State<DriverProfile> {
                                     color: Colors.white,
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Colors.black.withOpacity(0.1),
+                                        color: Colors.black.withAlpha(50),
                                         blurRadius: 12,
                                       ),
                                     ],
@@ -277,9 +255,7 @@ class _DriverProfileState extends State<DriverProfile> {
                                     ),
                                   ),
                                 ),
-
                                 const SizedBox(height: 14),
-
                                 Text(
                                   _nameController.text.isEmpty
                                       ? "Driver"
@@ -290,21 +266,17 @@ class _DriverProfileState extends State<DriverProfile> {
                                     color: Colors.white,
                                   ),
                                 ),
-
                                 const SizedBox(height: 6),
-
                                 Text(
                                   user?.email ?? "",
                                   style: TextStyle(
-                                    color: Colors.white.withOpacity(0.8),
+                                    color: Colors.white.withAlpha(50),
                                   ),
                                 ),
                               ],
                             ),
                           ),
-
                           const SizedBox(height: 24),
-
                           _buildInputCard(
                             child: TextFormField(
                               controller: _nameController,
@@ -329,12 +301,7 @@ class _DriverProfileState extends State<DriverProfile> {
                               ),
                             ),
                           ),
-
                           const SizedBox(height: 24),
-
-                          // ---------------------------------------------------------
-                          // BUTTON UPDATE PROFIL
-                          // ---------------------------------------------------------
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton(
@@ -356,12 +323,7 @@ class _DriverProfileState extends State<DriverProfile> {
                                     ),
                             ),
                           ),
-
                           const SizedBox(height: 32),
-
-                          // ---------------------------------------------------------
-                          // PASSWORD SECTION
-                          // ---------------------------------------------------------
                           if (!_isGoogleUser) ...[
                             const Align(
                               alignment: Alignment.centerLeft,
@@ -373,9 +335,7 @@ class _DriverProfileState extends State<DriverProfile> {
                                 ),
                               ),
                             ),
-
                             const SizedBox(height: 10),
-
                             _buildInputCard(
                               child: Column(
                                 children: [
@@ -407,7 +367,6 @@ class _DriverProfileState extends State<DriverProfile> {
                                       ),
                                     ],
                                   ),
-
                                   if (_showPasswordFields) ...[
                                     const SizedBox(height: 16),
                                     TextFormField(
@@ -470,7 +429,6 @@ class _DriverProfileState extends State<DriverProfile> {
                               ),
                             ),
                           ],
-
                           const SizedBox(height: 40),
                         ],
                       ),
@@ -481,10 +439,6 @@ class _DriverProfileState extends State<DriverProfile> {
       ),
     );
   }
-
-  // ---------------------------------------------------------
-  // UI HELPERS
-  // ---------------------------------------------------------
 
   InputDecoration _inputDecoration({
     required String label,

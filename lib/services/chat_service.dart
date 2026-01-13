@@ -5,13 +5,10 @@ import '../models/chat_message_model.dart';
 class ChatService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  /// ==============================
-  /// SEND MESSAGE
-  /// ==============================
   Future<void> sendMessage({
     required String orderId,
     required String senderId,
-    required String senderRole, // 'user' | 'driver'
+    required String senderRole,
     required String message,
   }) async {
     final orderRef = _firestore.collection('orders').doc(orderId);
@@ -30,10 +27,8 @@ class ChatService {
     );
 
     await _firestore.runTransaction((tx) async {
-      /// 1️⃣ simpan pesan
       tx.set(messageRef, chatMessage.toMap());
 
-      /// 2️⃣ update last_message (UNTUK HISTORI)
       tx.set(orderRef, {
         'last_message': {
           'text': message,
@@ -43,7 +38,6 @@ class ChatService {
         },
       }, SetOptions(merge: true));
 
-      /// 3️⃣ update unread counter
       final metaRef = orderRef.collection('chat_meta').doc('meta');
 
       if (senderRole == 'user') {
@@ -58,9 +52,6 @@ class ChatService {
     });
   }
 
-  /// ==============================
-  /// GET MESSAGES
-  /// ==============================
   Stream<QuerySnapshot> getMessages(String orderId) {
     return _firestore
         .collection('orders')
@@ -70,9 +61,6 @@ class ChatService {
         .snapshots();
   }
 
-  /// ==============================
-  /// MARK AS READ
-  /// ==============================
   Future<void> markAsRead(String orderId, String messageId) async {
     final messageRef = _firestore
         .collection('orders')
@@ -82,9 +70,6 @@ class ChatService {
     await messageRef.update({'readAt': Timestamp.now()});
   }
 
-  /// ==============================
-  /// RESET UNREAD COUNTER
-  /// ==============================
   Future<void> resetUnreadCounter(String orderId, String role) async {
     final metaRef = _firestore
         .collection('orders')

@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_osm_plugin/flutter_osm_plugin.dart' as osm;
 import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
@@ -30,7 +29,6 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
     );
   }
 
-  // Fungsi untuk mendapatkan alamat dari koordinat dengan debouncing
   void _getAddressFromLocation(osm.GeoPoint point) {
     _addressLookupTimer?.cancel();
     _addressLookupTimer = Timer(const Duration(milliseconds: 1000), () async {
@@ -71,7 +69,6 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
     });
   }
 
-  // Fungsi yang dipanggil ketika user selesai memilih lokasi
   void _confirmLocation() {
     if (_selectedLocation != null) {
       final result = {
@@ -101,12 +98,10 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
             osmOption: osm.OSMOption(
               zoomOption: const osm.ZoomOption(initZoom: 15),
             ),
-            // Mengambil lokasi ketika peta selesai dimuat
             onMapIsReady: (isReady) async {
               if (isReady && mounted) {
                 try {
                   final centerPoint = await _mapController.centerMap;
-                  // Saat peta siap, akan mendapatkan lokasi pusat peta saat ini
                   if (mounted) {
                     setState(() {
                       _selectedLocation = centerPoint;
@@ -117,9 +112,7 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
                 }
               }
             },
-            // Mengambil lokasi baru ketika user menggeser peta
             onGeoPointClicked: (osm.GeoPoint point) {
-              // Ketika user klik suatu titik, titik itu menjadi GeoPoint yang dipilih
               if (mounted) {
                 setState(() {
                   _selectedLocation = point;
@@ -127,7 +120,6 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
                 _getAddressFromLocation(point);
               }
             },
-            // Saat user menggeser peta, ambil lokasi pusat baru
             onMapMoved: (newRegion) {
               if (mounted) {
                 setState(() {
@@ -138,13 +130,9 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
             },
             mapIsLoading: const Center(child: CircularProgressIndicator()),
           ),
-
-          // 2. Pin di Tengah Peta untuk Visualisasi
           const Center(
             child: Icon(Icons.location_pin, color: Colors.red, size: 50),
           ),
-
-          // 3. Info Alamat dan Tombol Konfirmasi Lokasi
           Positioned(
             bottom: 30,
             left: 20,

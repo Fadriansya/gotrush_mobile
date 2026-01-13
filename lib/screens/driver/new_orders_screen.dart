@@ -1,4 +1,3 @@
-// new_orders_screen.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
@@ -10,7 +9,6 @@ import '../order_room_screen.dart';
 
 class NewOrdersScreen extends StatefulWidget {
   const NewOrdersScreen({super.key});
-
   @override
   State<NewOrdersScreen> createState() => _NewOrdersScreenState();
 }
@@ -37,13 +35,10 @@ class _NewOrdersScreenState extends State<NewOrdersScreen> {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-
           if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
           }
-
           final docs = snapshot.data?.docs ?? [];
-
           if (docs.isEmpty) {
             return const Center(
               child: Text(
@@ -60,7 +55,6 @@ class _NewOrdersScreenState extends State<NewOrdersScreen> {
               final doc = docs[index];
               final data = doc.data() as Map<String, dynamic>;
               final orderId = doc.id;
-
               return Card(
                 margin: const EdgeInsets.only(bottom: 12),
                 elevation: 2,
@@ -156,7 +150,6 @@ class _NewOrdersScreenState extends State<NewOrdersScreen> {
                                 final accepted = await _orderService
                                     .acceptOrder(orderId, driverId);
                                 if (!mounted) return;
-
                                 showAppSnackBar(
                                   context,
                                   accepted
@@ -166,8 +159,6 @@ class _NewOrdersScreenState extends State<NewOrdersScreen> {
                                       ? AlertType.success
                                       : AlertType.error,
                                 );
-
-                                // Jika diterima, alihkan ke halaman Order Room
                                 if (accepted) {
                                   Navigator.of(context).push(
                                     MaterialPageRoute(

@@ -1,4 +1,3 @@
-// order_detail_screen.dart
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -27,7 +26,6 @@ Color _getStatusColor(String status) {
   }
 }
 
-// Color Extension yang sudah diperbaiki
 extension ColorExtension on Color {
   Color withValues({double? alpha, double? red, double? green, double? blue}) {
     final double finalAlphaDouble = (alpha ?? this.alpha / 255.0) * 255.0;

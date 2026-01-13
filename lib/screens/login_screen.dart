@@ -63,7 +63,6 @@ class _LoginScreenState extends State<LoginScreen> {
       String message;
       switch (e.code) {
         case 'wrong-password':
-          // Pesan khusus sesuai permintaan
           message = 'Password tidak ada, coba masukkan ulang';
         case 'user-not-found':
           message = 'Email belum terdaftar. Coba daftar terlebih dahulu.';
@@ -188,12 +187,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           return 'Email tidak boleh kosong';
                         }
                         final val = v.trim().toLowerCase();
-                        // Validasi hanya boleh email Gmail
                         final isGmail = val.endsWith('@gmail.com');
                         if (!isGmail) {
                           return 'Hanya email @gmail.com yang diizinkan';
                         }
-                        // Cek pola dasar email
                         final emailRegex = RegExp(
                           r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
                         );

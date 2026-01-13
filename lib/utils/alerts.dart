@@ -28,7 +28,6 @@ IconData _iconFor(AlertType type) {
   }
 }
 
-/// Shows a styled, floating SnackBar with an icon and message.
 void showAppSnackBar(
   BuildContext context,
   String message, {
@@ -46,8 +45,6 @@ void showAppSnackBar(
     ..showSnackBar(snack);
 }
 
-/// Build a SnackBar widget so callers can capture a ScaffoldMessengerState and
-/// show it later (avoids using BuildContext across async gaps).
 SnackBar buildAppSnackBar(
   BuildContext context,
   String message, {
@@ -56,7 +53,6 @@ SnackBar buildAppSnackBar(
 }) {
   final bg = _backgroundColor(context, type);
   final icon = _iconFor(type);
-  // set sensible defaults per type
   final defDuration =
       duration ??
       (type == AlertType.info
@@ -64,7 +60,6 @@ SnackBar buildAppSnackBar(
           : type == AlertType.error
           ? const Duration(seconds: 4)
           : const Duration(seconds: 3));
-
   return SnackBar(
     behavior: SnackBarBehavior.floating,
     backgroundColor: bg,
@@ -88,8 +83,6 @@ SnackBar buildAppSnackBar(
   );
 }
 
-/// Build a SnackBar using only [ThemeData] so callers can construct the
-/// SnackBar without holding a BuildContext across async gaps.
 SnackBar buildAppSnackBarFromTheme(
   ThemeData theme,
   String message, {
@@ -137,8 +130,6 @@ SnackBar buildAppSnackBarFromTheme(
   );
 }
 
-/// Shows a dialog with a small entrance animation. For [AlertType.info]
-/// the dialog will auto-dismiss after a short duration (non-blocking).
 Future<void> showAppDialog(
   BuildContext context, {
   String title = 'Perhatian',
@@ -152,7 +143,6 @@ Future<void> showAppDialog(
 
   if (!context.mounted) return;
 
-  // choose auto-dismiss for info-type dialogs unless explicitly disabled
   final shouldAutoDismiss =
       type == AlertType.info && autoDismissDuration != Duration.zero;
   final dismissAfter = autoDismissDuration ?? const Duration(seconds: 2);
@@ -162,16 +152,12 @@ Future<void> showAppDialog(
     barrierDismissible: barrierDismissible,
     barrierLabel: 'Alert',
     pageBuilder: (ctx, anim1, anim2) {
-      // schedule auto-dismiss if applicable; capture NavigatorState to avoid
-      // using the BuildContext across the async gap.
       if (shouldAutoDismiss) {
         final nav = Navigator.of(ctx);
         Future.delayed(dismissAfter, () {
           try {
             if (nav.canPop()) nav.pop();
-          } catch (_) {
-            // ignore pop errors
-          }
+          } catch (_) {}
         });
       }
 

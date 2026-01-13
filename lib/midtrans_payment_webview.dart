@@ -1,4 +1,3 @@
-// midtrans_payment_webview.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -59,16 +58,12 @@ class _MidtransPaymentWebViewState extends State<MidtransPaymentWebView> {
             final url = request.url;
             debugPrint("NAV: $url");
 
-            // ============================
-            //  DETEKSI CALLBACK CUSTOM SCHEME
-            // ============================
             if (url.startsWith(
                   "https://api-midtrans-teal.vercel.app/api/payment-finish",
                 ) ||
                 url.startsWith(
                   "http://api-midtrans-teal.vercel.app/api/payment-finish",
                 )) {
-              // Payment success -> move to pickup_validation stage
               FirebaseFirestore.instance
                   .collection('orders')
                   .doc(widget.orderId)
@@ -79,7 +74,6 @@ class _MidtransPaymentWebViewState extends State<MidtransPaymentWebView> {
                   });
 
               widget.onPaymentSuccess?.call();
-              // Don't auto-pop, let user close manually
               return NavigationDecision.prevent;
             }
 
@@ -89,7 +83,6 @@ class _MidtransPaymentWebViewState extends State<MidtransPaymentWebView> {
                 url.startsWith(
                   "http://api-midtrans-teal.vercel.app/api/payment-error",
                 )) {
-              // Use addPostFrameCallback to prevent navigator lock
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (mounted) {
                   Navigator.pop(context, {'status': 'error'});
@@ -104,7 +97,6 @@ class _MidtransPaymentWebViewState extends State<MidtransPaymentWebView> {
                 url.startsWith(
                   "http://api-midtrans-teal.vercel.app/api/payment-unfinish",
                 )) {
-              // Use addPostFrameCallback to prevent navigator lock
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (mounted) {
                   Navigator.pop(context, {'status': 'cancel'});

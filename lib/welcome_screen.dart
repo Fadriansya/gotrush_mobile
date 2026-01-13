@@ -24,7 +24,6 @@ class WelcomeScreen extends StatelessWidget {
         ),
         child: SafeArea(
           child: SingleChildScrollView(
-            // ✅ agar tidak overflow
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
               child: Column(
@@ -32,7 +31,6 @@ class WelcomeScreen extends StatelessWidget {
                 children: [
                   const SizedBox(height: 10),
 
-                  //  Gambar ilustrasi
                   Image.asset(
                     'assets/images/welcome.png',
                     height: 300,
@@ -42,7 +40,6 @@ class WelcomeScreen extends StatelessWidget {
 
                   const SizedBox(height: 10),
 
-                  // 🔹 Judul
                   Text(
                     'Selamat Datang di GoTrash',
                     style: GoogleFonts.poppins(
@@ -55,7 +52,6 @@ class WelcomeScreen extends StatelessWidget {
 
                   const SizedBox(height: 12),
 
-                  // 🔹 Deskripsi
                   Text(
                     'Jadwalkan penjemputan sampahmu secara mudah, cepat, dan ramah lingkungan 🌱',
                     style: GoogleFonts.poppins(
@@ -68,7 +64,6 @@ class WelcomeScreen extends StatelessWidget {
 
                   const SizedBox(height: 40),
 
-                  // 🔹 Tombol utama: Register
                   _buildButton(
                     context,
                     label: 'Mulai Sekarang',
@@ -85,7 +80,6 @@ class WelcomeScreen extends StatelessWidget {
 
                   const SizedBox(height: 12),
 
-                  // 🔹 Tombol sekunder: Login
                   _buildOutlinedButton(
                     context,
                     label: 'Sudah Punya Akun? Login',
@@ -107,7 +101,6 @@ class WelcomeScreen extends StatelessWidget {
     );
   }
 
-  // 🔸 Tombol hijau utama
   Widget _buildButton(
     BuildContext context, {
     required String label,
@@ -138,7 +131,6 @@ class WelcomeScreen extends StatelessWidget {
     );
   }
 
-  // 🔸 Tombol outline (Login)
   Widget _buildOutlinedButton(
     BuildContext context, {
     required String label,

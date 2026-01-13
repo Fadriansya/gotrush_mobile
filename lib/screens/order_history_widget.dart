@@ -1,4 +1,3 @@
-// order_history_widget.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -6,7 +5,7 @@ import 'order_detail_screen.dart';
 
 class OrderHistoryWidget extends StatefulWidget {
   final String currentUserId;
-  final String role; // 'user' | 'driver'
+  final String role;
 
   const OrderHistoryWidget({
     super.key,
@@ -27,8 +26,6 @@ class _OrderHistoryWidgetState extends State<OrderHistoryWidget> {
   bool _hasMore = true;
   String? _error;
   late final ScrollController _scrollController;
-
-  // ================= UTIL =================
 
   Color _statusColor(String status) {
     switch (status) {
@@ -154,8 +151,6 @@ class _OrderHistoryWidgetState extends State<OrderHistoryWidget> {
     super.dispose();
   }
 
-  // ================= DELETE =================
-
   Future<void> _deleteOrder(BuildContext context, String orderId) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -177,7 +172,6 @@ class _OrderHistoryWidgetState extends State<OrderHistoryWidget> {
     );
 
     if (ok == true) {
-      // Instead of deleting, we update a field to hide it per user
       final fieldToUpdate = widget.role == 'user'
           ? 'hidden_by_user'
           : 'hidden_by_driver';
@@ -193,8 +187,6 @@ class _OrderHistoryWidgetState extends State<OrderHistoryWidget> {
       }
     }
   }
-
-  // ================= UI =================
 
   @override
   Widget build(BuildContext context) {
@@ -250,7 +242,6 @@ class _OrderHistoryWidgetState extends State<OrderHistoryWidget> {
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
             onTap: () async {
-              // Lazy unread fetch on tap (single get), then navigate
               int unread = 0;
               try {
                 final metaDoc = await FirebaseFirestore.instance
@@ -287,7 +278,6 @@ class _OrderHistoryWidgetState extends State<OrderHistoryWidget> {
               padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
-                  // ========== CHAT ICON (no unread badge fallback) ==========
                   CircleAvatar(
                     radius: 22,
                     backgroundColor: Colors.green[700],
@@ -296,7 +286,6 @@ class _OrderHistoryWidgetState extends State<OrderHistoryWidget> {
 
                   const SizedBox(width: 12),
 
-                  // ========== INFO ==========
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -338,7 +327,6 @@ class _OrderHistoryWidgetState extends State<OrderHistoryWidget> {
                     ),
                   ),
 
-                  // ========== DELETE ==========
                   IconButton(
                     icon: const Icon(Icons.delete, color: Colors.redAccent),
                     onPressed: () => _deleteOrder(context, orderId),

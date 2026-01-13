@@ -1,4 +1,3 @@
-// order_room_screen.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -12,7 +11,7 @@ import 'driver/driver_map_tracking_screen.dart';
 
 class OrderRoomScreen extends StatefulWidget {
   final String orderId;
-  final String role; // 'user' atau 'driver'
+  final String role;
 
   const OrderRoomScreen({super.key, required this.orderId, required this.role});
 
@@ -62,15 +61,12 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
           final phone = (data['phone_number'] ?? '-') as String;
           final weight = ((data['weight'] ?? 0) as num).toDouble();
           final driverWeight = ((data['driver_weight'] ?? 0) as num).toDouble();
-          final weightStatus =
-              (data['weight_status'] ?? '')
-                  as String; // proposed | approved | disputed
+          final weightStatus = (data['weight_status'] ?? '') as String;
           final distance = ((data['distance'] ?? 0) as num).toDouble();
           final price = ((data['price'] ?? 0) as num).toDouble();
           final pickupTs = data['pickup_date'] as Timestamp?;
           final driverId = (data['driver_id'] ?? '') as String;
           final userId = (data['user_id'] ?? '') as String;
-          // Alur baru tidak memakai pickup_confirmed; gunakan status
           final paymentStatus = (data['payment_status'] ?? '') as String;
 
           final pickupDateStr = pickupTs != null
@@ -223,12 +219,10 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
     required String paymentStatus,
     required bool pickupConfirmed,
   }) {
-    // USER UI
     if (widget.role == 'user') {
-      // 1. USER: Validasi Pengambilan
       if (status == 'waiting_user_validation') {
         return Card(
-          color: Colors.orange.withOpacity(0.06),
+          color: Colors.orange.withAlpha(50),
           child: Padding(
             padding: const EdgeInsets.all(12.0),
             child: Column(
@@ -322,11 +316,10 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
         );
       }
 
-      // 2. USER: Verifikasi berat
       if (status == 'awaiting_confirmation') {
         if (weightStatus == 'proposed') {
           return Card(
-            color: Colors.teal.withOpacity(0.05),
+            color: Colors.teal.withAlpha(50),
             child: Padding(
               padding: const EdgeInsets.all(12.0),
               child: Column(
@@ -424,7 +417,6 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
         }
       }
 
-      // 3. USER: Tombol Bayar
       if (status == 'waiting_payment') {
         return Align(
           alignment: Alignment.centerLeft,
@@ -432,7 +424,6 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
             icon: const Icon(Icons.payment),
             label: const Text('Bayar'),
             onPressed: () async {
-              // Trigger payment via midtrans
               final auth = Provider.of<AuthService>(context, listen: false);
               final user = auth.currentUser;
               if (user == null) return;
@@ -448,7 +439,6 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
                 );
                 return;
               }
-              // Open webview
               await Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => MidtransPaymentWebView(
@@ -462,7 +452,6 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
         );
       }
 
-      // 4. USER: Info setelah bayar
       if ((paymentStatus == 'success' || paymentStatus == 'paid') &&
           status != 'waiting_user_validation' &&
           status != 'picked_up' &&
@@ -473,18 +462,14 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
         );
       }
 
-      // 5. USER: Status Selesai
       if (status == 'completed') {
         return const Text('Order selesai. Terima kasih!');
       }
 
-      // 6. USER: Fallback
       return const SizedBox.shrink();
     }
 
-    // DRIVER UI
     if (widget.role == 'driver') {
-      // 1. DRIVER: Tombol Selesaikan Order
       if (status == 'picked_up') {
         return Align(
           alignment: Alignment.centerLeft,
@@ -511,7 +496,6 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
         );
       }
 
-      // 2. DRIVER: Tombol Konfirmasi Ambil Sampah (setelah user bayar)
       if ((paymentStatus == 'success' || paymentStatus == 'paid') &&
           status != 'waiting_user_validation' &&
           status != 'picked_up' &&
@@ -545,7 +529,6 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
         );
       }
 
-      // 3. DRIVER: Menunggu validasi dari user
       if (status == 'waiting_user_validation') {
         return const Text(
           'Menunggu validasi pengambilan dari pengguna...',
@@ -553,7 +536,6 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
         );
       }
 
-      // 4. DRIVER: Form ajukan berat
       if (status == 'active' ||
           status == 'arrived' ||
           (status == 'awaiting_confirmation' && weightStatus != 'approved')) {
@@ -625,7 +607,6 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
         );
       }
 
-      // 5. DRIVER: Info setelah berat disetujui / menunggu pembayaran
       if (status == 'waiting_payment' ||
           (weightStatus == 'approved' &&
               paymentStatus != 'success' &&
@@ -635,12 +616,10 @@ class _OrderRoomScreenState extends State<OrderRoomScreen> {
         );
       }
 
-      // 6. DRIVER: Status Selesai
       if (status == 'completed') {
         return const Text('Order selesai. Terima kasih!');
       }
 
-      // 7. DRIVER: Fallback
       return const Text('Menunggu proses timbangan dimulai.');
     }
 

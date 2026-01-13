@@ -24,7 +24,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String _role = 'user';
   bool _isLoading = false;
 
-  // Visibility toggle via ValueNotifier (tidak pernah null)
   final ValueNotifier<bool> _showPassword = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _showConfirmPassword = ValueNotifier<bool>(false);
 
@@ -64,7 +63,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       Navigator.pushReplacementNamed(context, '/login');
     } on Exception catch (e) {
-      // Tangani FirebaseAuthException khusus (jika pakai)
       String message = e.toString();
       try {
         final ex = e as dynamic;
@@ -80,9 +78,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             message = ex.message ?? ex.toString();
           }
         }
-      } catch (_) {
-        // tetap pakai message default
-      }
+      } catch (e) {}
 
       if (mounted) {
         showAppSnackBar(
@@ -158,13 +154,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                       const SizedBox(height: 12),
 
-                      // Phone
                       TextFormField(
                         controller: _phoneCtrl,
                         keyboardType: TextInputType.number,
                         inputFormatters: [
-                          FilteringTextInputFormatter
-                              .digitsOnly, // ⬅ hanya angka
+                          FilteringTextInputFormatter.digitsOnly,
                         ],
                         decoration: InputDecoration(
                           labelText: 'Nomor Telepon',
@@ -194,7 +188,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                       const SizedBox(height: 12),
 
-                      // Email
                       TextFormField(
                         controller: _emailCtrl,
                         decoration: InputDecoration(
@@ -223,7 +216,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                       const SizedBox(height: 12),
 
-                      // Password (ValueListenableBuilder untuk toggle)
                       ValueListenableBuilder<bool>(
                         valueListenable: _showPassword,
                         builder: (_, show, __) {
@@ -267,7 +259,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                       const SizedBox(height: 12),
 
-                      // Confirm password
                       ValueListenableBuilder<bool>(
                         valueListenable: _showConfirmPassword,
                         builder: (_, show, __) {
@@ -306,9 +297,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                       const SizedBox(height: 12),
 
-                      // Role
                       DropdownButtonFormField<String>(
-                        // prefer initialValue over deprecated `value` for form fields
                         initialValue: _role,
                         decoration: InputDecoration(
                           labelText: 'Daftar sebagai',

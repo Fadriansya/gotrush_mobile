@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 class EdukasiScreen extends StatefulWidget {
   const EdukasiScreen({super.key});
-
   @override
   State<EdukasiScreen> createState() => _EdukasiScreenState();
 }
@@ -11,10 +10,8 @@ class _EdukasiScreenState extends State<EdukasiScreen>
     with TickerProviderStateMixin {
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
-
   late AnimationController _pulseController;
   late Animation<double> _pulseScale;
-
   int _sectionIndex =
       0; // 0: Pengantar, 1: Jenis, 2: Kelebihan/Kekurangan, 3: 3R & Tips
   List<bool> _expanded = [false, false, false, false];
@@ -129,7 +126,7 @@ class _EdukasiScreenState extends State<EdukasiScreen>
   @override
   void initState() {
     super.initState();
-    _expanded = List<bool>.filled(5, false); // jumlah panel Jenis Sampah
+    _expanded = List<bool>.filled(5, false);
     _fadeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
@@ -282,7 +279,6 @@ class _EdukasiScreenState extends State<EdukasiScreen>
     }
   }
 
-  // ===================== Section 0: Pengantar =====================
   Widget _buildIntroSection() {
     final items = [
       {
@@ -369,7 +365,6 @@ class _EdukasiScreenState extends State<EdukasiScreen>
     );
   }
 
-  // ===================== Section 1: Jenis =====================
   Widget _buildJenisSection() {
     final panels = [
       {
@@ -441,7 +436,7 @@ class _EdukasiScreenState extends State<EdukasiScreen>
             borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withAlpha(50),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -509,7 +504,6 @@ class _EdukasiScreenState extends State<EdukasiScreen>
     );
   }
 
-  // ===================== Section 2: Kelebihan & Kekurangan =====================
   Widget _buildProsConsSection() {
     final pros = [
       'Mengurangi volume sampah di TPA dan potensi banjir.',
@@ -649,7 +643,6 @@ class _EdukasiScreenState extends State<EdukasiScreen>
     );
   }
 
-  // ===================== Section 3: 3R & Tips =====================
   Widget _build3RTipsSection() {
     final threeR = [
       {
@@ -751,9 +744,7 @@ class _EdukasiScreenState extends State<EdukasiScreen>
     );
   }
 
-  // ===================== Helpers =====================
   Widget _animatedCard({required int index, required Widget child}) {
-    // Animasi ringan: slide + fade, dengan sedikit penundaan per index.
     final delayMs = 60 * index;
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
@@ -773,7 +764,6 @@ class _EdukasiScreenState extends State<EdukasiScreen>
 
   void _showInfo(String category, String text) {
     final actions = _saranTindakan[category] ?? const [];
-
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(

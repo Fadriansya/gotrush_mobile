@@ -1,4 +1,3 @@
-// driver_home.dart
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
@@ -13,7 +12,6 @@ import '../../services/auth_service.dart';
 import '../../utils/alerts.dart';
 import '../../services/notification_service.dart';
 import '../order_history_widget.dart';
-import '../chat_screen.dart';
 import '../order_room_screen.dart';
 import 'driver_map_tracking_screen.dart';
 
@@ -35,8 +33,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   Timestamp? _lastLoginAt;
   bool _checkedInitialOrders = false;
   Map<String, String> _previousStatusPerOrder = {};
-  String? _lastNavigatedOrderId; // Tambahkan ini di bagian atas state
-
+  String? _lastNavigatedOrderId;
   DateTime _startOfToday() {
     final now = DateTime.now();
     return DateTime(now.year, now.month, now.day);
@@ -47,7 +44,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     return DateTime(now.year, now.month, now.day, 23, 59, 59);
   }
 
-  // fungsi untuk inisialisasi state berguna untuk mendengarkan order baru
   @override
   void initState() {
     super.initState();
@@ -57,7 +53,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     });
   }
 
-  // bersihkan subscription dan timer saat dispose
   @override
   void dispose() {
     _orderSub?.cancel();
@@ -65,7 +60,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     super.dispose();
   }
 
-  // Widget untuk menampilkan badge jumlah order hari ini
   Widget _buildTodayOrderBadge() {
     final startToday = Timestamp.fromDate(_startOfToday());
     final endToday = Timestamp.fromDate(_endOfToday());
@@ -82,9 +76,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return const SizedBox.shrink();
         }
-        // Semua dokumen di snapshot sudah pasti order hari ini
         final orderCount = snapshot.data!.docs.length;
-        // Tampilkan badge hanya jika ada order hari ini
         if (orderCount == 0) return const SizedBox.shrink();
 
         return Positioned(
@@ -112,7 +104,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     );
   }
 
-  // fungsi untuk memuat last login driver
   Future<void> _loadLastLogin() async {
     final auth = Provider.of<AuthService>(context, listen: false);
     final uid = auth.currentUser?.uid;
@@ -126,7 +117,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     _lastLoginAt = doc.data()?['last_login_at'] as Timestamp?;
   }
 
-  // funsi untuk memulai mendengarkan order baru dan update lokasi
   Future<void> _startListeningAndTracking() async {
     final auth = Provider.of<AuthService>(context, listen: false);
     final driverUid = auth.currentUser?.uid;
@@ -137,7 +127,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     final endToday = Timestamp.fromDate(_endOfToday());
     final Set<String> notifiedOrderIds = {};
 
-    // 🔹 Stream untuk order baru hari ini yang belum diambil driver
     _orderSub = FirebaseFirestore.instance
         .collection('orders')
         .where('status', isEqualTo: 'pending')
@@ -160,7 +149,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           }
         });
 
-    // Stream untuk order aktif driver
     FirebaseFirestore.instance
         .collection('orders')
         .where('driver_id', isEqualTo: driverUid)
@@ -203,15 +191,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                     ),
                   )
                   .then((_) {
-                    // Reset saat kembali ke home jika diperlukan
                     _lastNavigatedOrderId = null;
                   });
             }
-
-            // Push Notification Global
             if (_previousStatusPerOrder[orderId] != '$status|$paymentStatus') {
               _previousStatusPerOrder[orderId] = '$status|$paymentStatus';
-              // Saat order masuk status active, alihkan ke halaman Order Room
               if (status == 'active') {
                 Navigator.of(context).push(
                   MaterialPageRoute(
@@ -260,7 +244,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           }
         });
 
-    // Timer update lokasi driver setiap 10 detik
     _locationUpdateTimer?.cancel();
     _locationUpdateTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       final status = _activeOrderData?['status'];
@@ -270,7 +253,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     });
   }
 
-  // fungsi untuk memulai perjalanan menuju lokasi user
   Future<void> _onDepartPressed() async {
     if (_activeOrderId == null || _activeOrderData == null) return;
     final GeoPoint defaultLocation = const GeoPoint(-6.1900, 106.7969);
@@ -296,10 +278,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     }
   }
 
-  // fungsi untuk memperbarui lokasi driver ke Firestore
   Future<void> _updateDriverLocation(String driverUid) async {
     try {
-      // Dapatkan lokasi driver saat ini
       Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
@@ -307,7 +287,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       final driverLocation = {
         'location': GeoPoint(position.latitude, position.longitude),
         'timestamp': Timestamp.now(),
-        // Anda juga bisa menambahkan bearing/kecepatan jika diperlukan
       };
 
       await FirebaseFirestore.instance
@@ -315,12 +294,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           .doc(driverUid)
           .set(driverLocation, SetOptions(merge: true));
     } catch (e) {
-      // Handle error jika driver menolak izin lokasi atau gagal
       print('Gagal update lokasi driver: $e');
     }
   }
 
-  // fungsi untuk menampilkan notifikasi lokal order baru
   Future<void> _showNewOrdersNotification() async {
     if (!context.mounted) return;
     await showModalBottomSheet<void>(
@@ -394,7 +371,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     );
   }
 
-  // fungsi untuk menampilkan dialog terima order
   Future<void> _promptAcceptOrder(
     String orderId,
     Map<String, dynamic> data,
@@ -544,7 +520,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                   if (!mounted) return;
                                   if (accepted) {
                                     _orderSub?.cancel();
-                                    // Reset _showingDialog immediately after success to prevent re-showing dialog
                                     setState(() => _showingDialog = false);
                                     WidgetsBinding.instance
                                         .addPostFrameCallback((_) {
@@ -565,7 +540,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                                     );
                                   } else {
                                     if (!accepted) {
-                                      // Also ensure dialog flag is reset on failure
                                       setState(() => _showingDialog = false);
                                       showAppSnackBar(
                                         context,
@@ -628,7 +602,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     );
   }
 
-  // widget untuk membangun UI utama
   @override
   Widget build(BuildContext context) {
     final String driverName = "Driver";
@@ -771,9 +744,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   subtitle: "Ubah status kerja",
                   icon: FontAwesomeIcons.wifi,
                   color: Colors.orange,
-                  onTap: () {
-                    // TODO: Navigasi ke status online/offline
-                  },
+                  onTap: () {},
                 ),
                 _buildMenuCard(
                   context,
@@ -791,7 +762,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             ),
 
             const SizedBox(height: 24),
-            // Tombol buka order aktif jika ada
             Builder(
               builder: (ctx) {
                 final auth = Provider.of<AuthService>(context, listen: false);
@@ -871,7 +841,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     );
   }
 
-  // Widget untuk menu card
   Widget _buildMenuCard(
     BuildContext context, {
     required String title,

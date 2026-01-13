@@ -1,4 +1,3 @@
-// pickup_schedule_screen.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -137,7 +136,7 @@ class PickupScheduleScreen extends StatelessWidget {
                             decoration: BoxDecoration(
                               color: _getStatusColor(
                                 order.status,
-                              ).withOpacity(0.2),
+                              ).withAlpha(25),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
@@ -160,7 +159,6 @@ class PickupScheduleScreen extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      // Tombol Bayar muncul saat menunggu pembayaran
                       if (order.status == 'waiting_payment' &&
                           (order.paymentStatus == null ||
                               order.paymentStatus != 'success'))
@@ -208,7 +206,6 @@ class PickupScheduleScreen extends StatelessWidget {
                                   );
 
                               if (result?['status'] == 'success') {
-                                // Safety: set payment_status success if needed (status set in WebView)
                                 await FirebaseFirestore.instance
                                     .collection('orders')
                                     .doc(order.id)
@@ -216,7 +213,6 @@ class PickupScheduleScreen extends StatelessWidget {
                                       'payment_status': 'success',
                                     }, SetOptions(merge: true));
 
-                                // Notifikasi ke driver: pembayaran berhasil (via local fallback)
                                 final snap = await FirebaseFirestore.instance
                                     .collection('orders')
                                     .doc(order.id)

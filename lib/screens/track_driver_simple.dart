@@ -50,7 +50,6 @@ class _TrackDriverSimpleState extends State<TrackDriverSimple> {
             );
           });
 
-          // client-side notification when near (200m)
           if (_distanceMeters != null &&
               _distanceMeters! <= 200 &&
               !_notified) {
@@ -96,7 +95,6 @@ class _TrackDriverSimpleState extends State<TrackDriverSimple> {
             const Spacer(),
             ElevatedButton(
               onPressed: () async {
-                // reset notification flag for testing
                 setState(() => _notified = false);
                 showAppSnackBar(
                   context,

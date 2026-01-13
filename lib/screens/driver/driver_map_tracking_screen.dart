@@ -1,4 +1,3 @@
-// driver_map_tracking_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
@@ -12,7 +11,7 @@ import '../../services/notification_service.dart';
 class DriverMapTrackingScreen extends StatefulWidget {
   final String orderId;
   final firestore.GeoPoint userLocation;
-  final String? watchDriverId; // optional: override driver to watch
+  final String? watchDriverId;
 
   const DriverMapTrackingScreen({
     super.key,
@@ -64,7 +63,6 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
               longitude: loc.longitude,
             );
 
-            // Add marker only after map is ready to avoid icon draw errors
             if (_mapReady) {
               if (_driverLocation != null) {
                 _mapController.removeMarker(_driverLocation!);
@@ -131,9 +129,6 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
     }
   }
 
-  // Legacy weight confirmation dialog removed. Weight/propose/confirm flow
-  // is handled in Order Room with the new status model.
-
   @override
   void dispose() {
     _locationSub?.cancel();
@@ -198,7 +193,6 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
                   (widget.watchDriverId != null &&
                       widget.watchDriverId == currentUid);
 
-              // Tiba di Lokasi: muncul saat status 'active' atau 'awaiting_confirmation'
               if (isViewerDriver &&
                   (status == 'active' || status == 'awaiting_confirmation')) {
                 return FloatingActionButton.extended(
@@ -213,7 +207,6 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
                         orderId: widget.orderId,
                         driverId: driverId,
                       );
-                      // Opsional: beri tahu user secara lokal (FCM jika tersedia)
                       try {
                         final doc = await firestore.FirebaseFirestore.instance
                             .collection('orders')
@@ -243,7 +236,6 @@ class _DriverMapTrackingScreenState extends State<DriverMapTrackingScreen> {
                 );
               }
 
-              // Konfirmasi Ambil: muncul jika sudah dibayar dan driver sudah tiba
               if (isViewerDriver &&
                   (status == 'arrived') &&
                   (paymentStatus == 'success' || paymentStatus == 'paid')) {

@@ -1,4 +1,3 @@
-// lib/screens/map_tracking_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -50,7 +49,6 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
   }
 
   void _listenToLocations() {
-    // Sesuaikan nama koleksi sesuai yang kamu pakai: 'drivers_location' / 'users_location'
     final driverStream = FirebaseFirestore.instance
         .collection('drivers_location')
         .doc(widget.driverId)
@@ -118,8 +116,6 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
 
   Future<void> _checkDistanceAndNotify() async {
     if (_driverLocation == null || _userLocation == null) return;
-
-    // 1. Hitung Jarak (menggunakan geolocator)
     final distance = Geolocator.distanceBetween(
       _driverLocation!.latitude,
       _driverLocation!.longitude,
@@ -127,38 +123,30 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
       _userLocation!.longitude,
     );
 
-    // Perbarui state jarak (opsional, untuk ditampilkan di UI)
     if (mounted) {
       setState(() {
-        _distanceToUser = distance; // Jarak dalam meter
+        _distanceToUser = distance;
       });
     }
 
-    // 2. Logika Notifikasi (Driver Hampir Sampai: 200 meter)
-    const threshold = 200.0; // Jarak dalam meter
+    const threshold = 200.0;
 
     if (distance <= threshold && !_isNearNotified) {
-      // Pemicu Notifikasi Lokal (Snackbar atau Dialog)
       showAppSnackBar(
         context,
         'Driver hampir sampai! Jarak: ${distance.toStringAsFixed(0)} meter.',
         type: AlertType.warning,
       );
-
-      // Set flag agar notifikasi hanya muncul sekali (atau sampai order selesai)
       _isNearNotified = true;
     }
 
-    // Reset flag jika jarak menjauh (opsional, tergantung logika yang diinginkan)
     if (distance > threshold * 2) {
-      // Contoh: reset jika jarak > 400m
       _isNearNotified = false;
     }
   }
 
   Future<void> _updateMapMarkers() async {
     try {
-      // Jika sebelumnya ada marker driver, hapus dulu
       if (_driverLocation != null) {
         await _mapController.removeMarker(
           osm.GeoPoint(
@@ -177,7 +165,6 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
         );
       }
 
-      // Tambahkan marker driver
       if (_driverLocation != null) {
         await _mapController.addMarker(
           osm.GeoPoint(
@@ -190,7 +177,6 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
         );
       }
 
-      // Tambahkan marker user
       if (_userLocation != null) {
         await _mapController.addMarker(
           osm.GeoPoint(
@@ -203,7 +189,6 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
         );
       }
 
-      // Zoom otomatis agar keduanya terlihat
       if (_driverLocation != null && _userLocation != null) {
         final box = osm.BoundingBox.fromGeoPoints([
           osm.GeoPoint(
@@ -217,14 +202,14 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
         ]);
         await _mapController.zoomToBoundingBox(box);
       } else if (_driverLocation != null) {
-        await _mapController.goToLocation(
+        await _mapController.moveTo(
           osm.GeoPoint(
             latitude: _driverLocation!.latitude,
             longitude: _driverLocation!.longitude,
           ),
         );
       } else if (_userLocation != null) {
-        await _mapController.goToLocation(
+        await _mapController.moveTo(
           osm.GeoPoint(
             latitude: _userLocation!.latitude,
             longitude: _userLocation!.longitude,
@@ -246,14 +231,12 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
       ),
       body: osm.OSMFlutter(
         controller: _mapController,
-        // osmOption wajib pada beberapa versi; pakai osm.OSMOption
         osmOption: osm.OSMOption(
           zoomOption: osm.ZoomOption(
             initZoom: 14,
             minZoomLevel: 3,
             maxZoomLevel: 18,
           ),
-          // userLocationMarker optional — kita set contoh
           userLocationMarker: osm.UserLocationMaker(
             personMarker: osm.MarkerIcon(
               icon: Icon(Icons.person_pin, color: Colors.blue),

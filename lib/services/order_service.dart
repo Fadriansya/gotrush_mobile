@@ -1,4 +1,3 @@
-// order_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
@@ -18,18 +17,13 @@ class OrderService {
     required String name,
     required String phoneNumber,
   }) async {
-    // Ambil timestamp dari server Firestore, lebih akurat daripada dari device.
     final now = FieldValue.serverTimestamp();
 
     final data = {
       "order_id": orderId,
       "user_id": userId,
       "driver_id": null,
-      // status utama (diberi dari caller)
       "status": status,
-      // payment_status: gunakan 'pending' saat create; setelah pembayaran berhasil,
-      // set ke 'success' dan ubah status order ke 'pickup_validation'
-      // (lihat method markPaymentSuccessToPickupValidation)
       "payment_status": "pending",
       "weight": weight,
       "distance": distance,
@@ -60,15 +54,10 @@ class OrderService {
     await batch.commit();
   }
 
-  // ================================================================
-  // 2. DRIVER MENERIMA PESANAN (transaction-safe)
-  //    Driver hanya dapat menerima order dengan status 'pending'
-  // ================================================================
   Future<bool> acceptOrder(String orderId, String driverId) async {
     final orderRef = _db.collection('orders').doc(orderId);
     final historyRef = _db.collection('order_history').doc(orderId);
 
-    // statuses yang diizinkan untuk diterima oleh driver
     final List<String> allowedAcceptStatuses = ['pending'];
 
     try {
@@ -77,7 +66,7 @@ class OrderService {
         if (!snap.exists) return false;
 
         final status = (snap.data()?['status'] ?? "").toString();
-        // jika status bukan di daftar yang diizinkan, return false
+
         if (!allowedAcceptStatuses.contains(status)) {
           debugPrint(
             "acceptOrder: status '$status' not allowed for acceptance",
@@ -103,9 +92,6 @@ class OrderService {
     }
   }
 
-  // ================================================================
-  // 3. UPDATE STATUS ORDER
-  // ================================================================
   Future<void> updateStatus(String orderId, String newStatus) async {
     final orderRef = _db.collection('orders').doc(orderId);
     final historyRef = _db.collection('order_history').doc(orderId);
@@ -117,7 +103,7 @@ class OrderService {
 
     if (newStatus == "completed") {
       update["completed_at"] = now;
-      update["timestamp_end"] = now; // tambahan untuk konsistensi mapping
+      update["timestamp_end"] = now;
     }
 
     final merged = {...fullData, ...update};
@@ -132,9 +118,6 @@ class OrderService {
     }
   }
 
-  // ================================================================
-  // 4. DRIVER TAMBAH FOTO SELESAI
-  // ================================================================
   Future<void> addCompletionPhoto(String orderId, String photoUrl) async {
     final fullData = await _getFullOrderData(orderId);
 
@@ -159,9 +142,6 @@ class OrderService {
     await _archiveOrder(orderId);
   }
 
-  // ================================================================
-  // 5. ARSIP (AUTO)
-  // ================================================================
   Future<void> _archiveOrder(String orderId) async {
     final orderRef = _db.collection('orders').doc(orderId);
     final historyRef = _db.collection('order_history').doc(orderId);
@@ -181,32 +161,19 @@ class OrderService {
     await batch.commit();
   }
 
-  // ================================================================
-  // 6. STREAM UNTUK DRIVER — bisa listen multiple statuses (whereIn)
-  //    Default: driver melihat status yang diberikan (default ['pending'])
-  // ================================================================
   Stream<QuerySnapshot> driverOrders({List<String>? statuses}) {
     final List<String> visible = statuses ?? ['pending'];
-    // Firestore whereIn supports up to 10 elements
     return _db
         .collection('orders')
         .where("status", whereIn: visible)
         .snapshots();
   }
 
-  // ================================================================
-  // 7. HELPER — AMBIL DATA ORDER
-  // ================================================================
   Future<Map<String, dynamic>> _getFullOrderData(String orderId) async {
     final doc = await _db.collection("orders").doc(orderId).get();
     return Map<String, dynamic>.from(doc.data() ?? {});
   }
 
-  // ================================================================
-  // 8. DRIVER MENGAJUKAN BERAT (Weight Verification)
-  //    - Set status -> 'awaiting_confirmation'
-  //    - Simpan driver_weight & tandai konfirmasi pending
-  // ================================================================
   Future<void> proposeWeight({
     required String orderId,
     required String driverId,
@@ -222,7 +189,7 @@ class OrderService {
       }
       tx.update(ref, {
         'driver_weight': weight,
-        'weight_status': 'proposed', // 'proposed' | 'approved' | 'disputed'
+        'weight_status': 'proposed',
         'weight_proposed_at': FieldValue.serverTimestamp(),
         'status': 'awaiting_confirmation',
         'updated_at': FieldValue.serverTimestamp(),
@@ -230,11 +197,6 @@ class OrderService {
     });
   }
 
-  // ================================================================
-  // 9. USER SETUJU BERAT
-  //    - Set status -> 'waiting_payment'
-  //    - Finalize final_weight
-  // ================================================================
   Future<void> confirmWeightByUser({
     required String orderId,
     required String userId,
@@ -248,7 +210,6 @@ class OrderService {
         throw Exception('User tidak berhak pada order ini');
       }
       final driverWeight = (data['driver_weight'] ?? 0).toDouble();
-      // Recalculate price dynamically using simple constants
       const double pricePerKm = 2000;
       const double pricePerKg = 2000;
       final distance = (data['distance'] ?? 0).toDouble();
@@ -264,10 +225,6 @@ class OrderService {
     });
   }
 
-  // ================================================================
-  // 10. USER SANGGAH BERAT
-  //     - Kembali ke status 'active' dan tandai 'disputed'
-  // ================================================================
   Future<void> disputeWeightByUser({
     required String orderId,
     required String userId,
@@ -293,11 +250,6 @@ class OrderService {
     });
   }
 
-  // ================================================================
-  // 11. PAYMENT SUCCESS -> PICKUP VALIDATION
-  //     - Set payment_status -> 'success'
-  //     - Set status -> 'pickup_validation'
-  // ================================================================
   Future<void> markPaymentSuccessToPickupValidation({
     required String orderId,
   }) async {
@@ -309,10 +261,6 @@ class OrderService {
     });
   }
 
-  // ================================================================
-  // 12. DRIVER CONFIRM PICKUP
-  //     - Only the assigned driver can set pickup_confirmed = true
-  // ================================================================
   Future<void> driverConfirmPickup({
     required String orderId,
     required String driverId,
@@ -325,7 +273,6 @@ class OrderService {
       if ((data['driver_id'] ?? '') != driverId) {
         throw Exception('Driver tidak berhak mengubah order ini');
       }
-      // Alur baru: setelah driver konfirmasi ambil, minta validasi user
       tx.update(ref, {
         'status': 'waiting_user_validation',
         'pickup_requested_at': FieldValue.serverTimestamp(),
@@ -334,9 +281,6 @@ class OrderService {
     });
   }
 
-  // ================================================================
-  // 13. DRIVER RESET PICKUP CONFIRMATION
-  // ================================================================
   Future<void> driverResetPickupConfirmation({
     required String orderId,
     required String driverId,
@@ -349,7 +293,6 @@ class OrderService {
       if ((data['driver_id'] ?? '') != driverId) {
         throw Exception('Driver tidak berhak mengubah order ini');
       }
-      // Alur baru: kembali ke status 'arrived' agar driver dapat ulang konfirmasi
       tx.update(ref, {
         'status': 'arrived',
         'updated_at': FieldValue.serverTimestamp(),
@@ -357,14 +300,6 @@ class OrderService {
     });
   }
 
-  // ================================================================
-  // 14. USER FINAL VALIDATION
-  //     - If confirmed: status -> 'completed' with server timestamp
-  //     - If not: reset pickup_confirmed -> false
-  // ================================================================
-  // Alur baru: validasi user terhadap pengambilan
-  // - Jika confirmed==true -> status 'picked_up'
-  // - Jika confirmed==false -> kembali ke 'arrived'
   Future<void> userRespondPickupValidation({
     required String orderId,
     required String userId,
@@ -393,7 +328,6 @@ class OrderService {
     });
   }
 
-  // Tambahan: driver menandai telah tiba di lokasi
   Future<void> driverArrived({
     required String orderId,
     required String driverId,
@@ -414,7 +348,6 @@ class OrderService {
     });
   }
 
-  // Tambahan: driver menyelesaikan order setelah user menyatakan 'Ya/picked_up'
   Future<void> driverCompleteOrder({
     required String orderId,
     required String driverId,
@@ -439,11 +372,7 @@ class OrderService {
     await _archiveOrder(orderId);
   }
 
-  // ================================================================
-  // 8. STREAM — ORDER DRIVER HARI INI (SOURCE OF TRUTH)
-  // ================================================================
   Stream<QuerySnapshot> driverTodayOrders({List<String>? statuses}) {
-    // Show only new, unassigned orders for today.
     final List<String> visible = statuses ?? ['pending'];
 
     final now = DateTime.now();

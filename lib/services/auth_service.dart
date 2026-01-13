@@ -1,4 +1,3 @@
-// auth_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -7,24 +6,18 @@ class AuthService extends ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  /// User aktif saat ini (jika sudah login)
   User? get currentUser => _auth.currentUser;
 
-  /// Stream untuk memantau perubahan user (login/logout)
   Stream<User?> get userChanges => _auth.userChanges();
 
-  // =========================================================
-  // 🔹 REGISTER AKUN BARU
-  // =========================================================
   Future<UserCredential?> register({
     required String email,
     required String password,
     required String name,
     required String phone,
-    required String role, // 'user' | 'driver'
+    required String role,
   }) async {
     try {
-      // 1️⃣ Buat akun di Firebase Auth
       final cred = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
@@ -32,7 +25,6 @@ class AuthService extends ChangeNotifier {
 
       final uid = cred.user!.uid;
 
-      // 2️⃣ Simpan data user ke Firestore
       await _firestore.collection('users').doc(uid).set({
         'uid': uid,
         'name': name,
@@ -56,9 +48,6 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  // =========================================================
-  // 🔹 LOGIN
-  // =========================================================
   Future<UserCredential?> login(String email, String password) async {
     try {
       final cred = await _auth.signInWithEmailAndPassword(
@@ -76,9 +65,6 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  // =========================================================
-  // 🔹 LOGOUT
-  // =========================================================
   Future<void> logout() async {
     try {
       await _auth.signOut();
@@ -89,9 +75,6 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  // =========================================================
-  // 🔹 AMBIL ROLE SEKALI PANGGIL (user/driver)
-  // =========================================================
   Future<String?> getUserRoleOnce() async {
     try {
       if (_auth.currentUser == null) return null;
@@ -113,9 +96,6 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  // =========================================================
-  // 🔹 UPDATE TOKEN FCM (notifikasi push)
-  // =========================================================
   Future<void> updateFcmToken(String token) async {
     try {
       if (_auth.currentUser == null) return;
@@ -128,9 +108,6 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  // =========================================================
-  // 🔹 UBAH STATUS DRIVER (online/offline)
-  // =========================================================
   Future<void> setDriverStatus(String status) async {
     try {
       if (_auth.currentUser == null) return;
@@ -143,16 +120,10 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  // =========================================================
-  // 🔹 STREAM DOKUMEN USER (REAL-TIME)
-  // =========================================================
   Stream<DocumentSnapshot<Map<String, dynamic>>> userDocStream(String uid) {
     return _firestore.collection('users').doc(uid).snapshots();
   }
 
-  // =========================================================
-  // Update last login timestamp
-  // =========================================================
   Future<void> updateLastLogin() async {
     if (_auth.currentUser == null) return;
 

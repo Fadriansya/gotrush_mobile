@@ -1,4 +1,3 @@
-// user_home.dart
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -21,7 +20,6 @@ import 'pickup_schedule_screen.dart';
 
 class UserHomeScreen extends StatefulWidget {
   const UserHomeScreen({super.key});
-
   @override
   State<UserHomeScreen> createState() => _UserHomeScreenState();
 }
@@ -37,14 +35,13 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   final Map<String, String?> _orderStatuses = {};
   final Map<String, String?> _paymentStatuses = {};
 
-  // sample fixed point used for price/distance calc (Monas)
   final firestore.GeoPoint _monasLocation = const firestore.GeoPoint(
     -6.175392,
     106.827153,
   );
 
-  static const double _pricePerKm = 2000; // example
-  static const double _pricePerKg = 2000; // example
+  static const double _pricePerKm = 1000;
+  static const double _pricePerKg = 1000;
 
   @override
   void initState() {
@@ -83,7 +80,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         .snapshots()
         .listen(
           (snap) {
-            // 🔹 Initial snapshot: cache only
             if (isInitialLoad) {
               for (var doc in snap.docs) {
                 final data = doc.data();
@@ -107,14 +103,11 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
               final prevStatus = _orderStatuses[orderId];
               final prevPayment = _paymentStatuses[orderId];
 
-              // 🛑 Tidak ada transisi → abaikan
               if (prevStatus == status && prevPayment == payment) continue;
 
-              // update cache
               _orderStatuses[orderId] = status;
               _paymentStatuses[orderId] = payment;
 
-              // ✅ TRANSISI KE COMPLETED (SATU KALI SAJA)
               if (status == 'completed' && prevStatus != 'completed') {
                 NotificationService().showLocal(
                   id: orderId.hashCode & 0x7fffffff,
@@ -127,8 +120,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                   _activeOrderData = null;
                 });
               }
-
-              // 🔁 Biarkan handler lain bekerja
               _handleStatusChange(
                 orderId,
                 status ?? '',
@@ -143,7 +134,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   }
 
   double _calculateDistance(firestore.GeoPoint a, firestore.GeoPoint b) {
-    // Haversine formula
     const R = 6371; // km
     final lat1 = a.latitude * (math.pi / 180);
     final lon1 = a.longitude * (math.pi / 180);
@@ -183,7 +173,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
 
     switch (status) {
       case 'active':
-        // Alihkan ke halaman Order Room khusus
         if (mounted) {
           Navigator.of(context).push(
             MaterialPageRoute(
@@ -192,7 +181,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
           );
         }
         break;
-      // case 'accepted': handled above by navigation
 
       case 'pickup_validation':
         await notificationService.showLocal(
@@ -232,7 +220,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         break;
 
       case 'completed':
-        _orderStatuses.remove(orderId); // 👈 penting
+        _orderStatuses.remove(orderId);
         await notificationService.showLocal(
           id: orderId.hashCode + 6,
           title: 'Pesanan Selesai',
@@ -256,13 +244,12 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     }
   }
 
-  // ===================== CREATE ORDER FLOW (final) =====================
   Future<void> _startCreateOrderFlow() async {
     final result = await Navigator.of(context).push<Map<String, dynamic>>(
       MaterialPageRoute(builder: (_) => const MapSelectionScreen()),
     );
 
-    if (result == null) return; // user canceled
+    if (result == null) return;
 
     final firestore.GeoPoint selectedLocation =
         result['location'] as firestore.GeoPoint;
@@ -279,7 +266,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     final phoneCtl = TextEditingController();
     DateTime? selectedDate;
 
-    // Pre-fill name and phone from user profile if available
     final auth = Provider.of<AuthService>(context, listen: false);
     final currentUser = auth.currentUser;
     if (currentUser != null) {
@@ -391,16 +377,13 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                     return;
                   }
 
-                  // ambil user info
                   final auth = Provider.of<AuthService>(context, listen: false);
                   final uid = auth.currentUser?.uid ?? '';
                   final email = auth.currentUser?.email ?? 'user@example.com';
 
-                  // 1) generate orderId unik (dipakai untuk Firestore & Midtrans)
                   final orderId =
                       'ORDER_${DateTime.now().millisecondsSinceEpoch}_$uid';
 
-                  // 2) simpan order awal ke Firestore dengan status pending_payment
                   try {
                     await _orderService.createOrder(
                       orderId: orderId,
@@ -426,8 +409,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                     return;
                   }
 
-                  // 3) untuk alur baru: tanpa pembayaran di awal
-                  //    cukup simpan dan tampilkan jadwal penjemputan
                   Navigator.of(ctx).pop();
                   if (!mounted) return;
                   showAppSnackBar(
@@ -518,7 +499,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         );
 
         if (result?['status'] == 'success') {
-          // Update to pickup_validation (safe duplicate of WebView change)
           await firestore.FirebaseFirestore.instance
               .collection('orders')
               .doc(orderId)
@@ -581,7 +561,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     }
   }
 
-  // ===================== UI =====================
   final List<Map<String, Object>> menuItems = [
     {
       'title': 'Jadwal Penjemputan',
@@ -679,7 +658,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       const SizedBox(height: 24),
     ];
 
-    // Add menu items
     for (final item in menuItems) {
       children.add(
         Padding(
@@ -723,7 +701,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     );
   }
 
-  // Floating/Dynamic Button: selalu tampil 'Buat Order', tambah 'Orderan Aktif' jika ada order aktif
   Widget _buildDynamicFab() {
     final auth = Provider.of<AuthService>(context, listen: false);
     final uid = auth.currentUser?.uid;
@@ -756,7 +733,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       );
     }
 
-    // Status yang dianggap aktif/processing di sisi user
     const activeStatuses = [
       'active',
       'awaiting_confirmation',

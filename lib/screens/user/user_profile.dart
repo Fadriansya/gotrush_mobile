@@ -1,4 +1,3 @@
-// user_profile.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -45,9 +44,6 @@ class _UserProfileState extends State<UserProfile> {
     super.dispose();
   }
 
-  // ---------------------------------------------------------
-  // LOAD USER DATA
-  // ---------------------------------------------------------
   Future<void> _loadUserData() async {
     setState(() => _isLoading = true);
 
@@ -82,9 +78,6 @@ class _UserProfileState extends State<UserProfile> {
     }
   }
 
-  // ---------------------------------------------------------
-  // MODAL KONFIRMASI
-  // ---------------------------------------------------------
   Future<bool> _showConfirmationDialog({
     required String title,
     required String message,
@@ -126,9 +119,6 @@ class _UserProfileState extends State<UserProfile> {
     return result ?? false;
   }
 
-  // ---------------------------------------------------------
-  // UPDATE PROFILE
-  // ---------------------------------------------------------
   Future<void> _updateProfile() async {
     if (_isUpdatingProfile) return;
     if (!_formKey.currentState!.validate()) return;
@@ -164,9 +154,6 @@ class _UserProfileState extends State<UserProfile> {
     }
   }
 
-  // ---------------------------------------------------------
-  // UPDATE PASSWORD
-  // ---------------------------------------------------------
   Future<void> _updatePassword() async {
     if (_isUpdatingPassword) return;
     if (_isGoogleUser) return;
@@ -223,9 +210,6 @@ class _UserProfileState extends State<UserProfile> {
     }
   }
 
-  // ---------------------------------------------------------
-  // MODERN RESPONSIVE UI
-  // ---------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -253,9 +237,6 @@ class _UserProfileState extends State<UserProfile> {
                       key: _formKey,
                       child: Column(
                         children: [
-                          // ---------------------------------------------------------
-                          // HEADER PROFILE MODERN
-                          // ---------------------------------------------------------
                           Container(
                             width: double.infinity,
                             padding: EdgeInsets.symmetric(
@@ -281,7 +262,7 @@ class _UserProfileState extends State<UserProfile> {
                                     color: Colors.white,
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Colors.black.withOpacity(0.1),
+                                        color: Colors.black.withAlpha(10),
                                         blurRadius: 12,
                                       ),
                                     ],
@@ -315,7 +296,7 @@ class _UserProfileState extends State<UserProfile> {
                                 Text(
                                   user?.email ?? "",
                                   style: TextStyle(
-                                    color: Colors.white.withOpacity(0.8),
+                                    color: Colors.white.withAlpha(200),
                                   ),
                                 ),
                               ],
@@ -324,9 +305,6 @@ class _UserProfileState extends State<UserProfile> {
 
                           const SizedBox(height: 24),
 
-                          // ---------------------------------------------------------
-                          // FORM INPUT MODERN
-                          // ---------------------------------------------------------
                           _buildInputCard(
                             child: TextFormField(
                               controller: _nameController,
@@ -354,9 +332,6 @@ class _UserProfileState extends State<UserProfile> {
 
                           const SizedBox(height: 24),
 
-                          // ---------------------------------------------------------
-                          // BUTTON UPDATE PROFIL
-                          // ---------------------------------------------------------
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton(
@@ -381,9 +356,6 @@ class _UserProfileState extends State<UserProfile> {
 
                           const SizedBox(height: 32),
 
-                          // ---------------------------------------------------------
-                          // PASSWORD SECTION
-                          // ---------------------------------------------------------
                           if (!_isGoogleUser) ...[
                             const Align(
                               alignment: Alignment.centerLeft,
@@ -503,10 +475,6 @@ class _UserProfileState extends State<UserProfile> {
       ),
     );
   }
-
-  // ---------------------------------------------------------
-  // UI HELPERS
-  // ---------------------------------------------------------
 
   InputDecoration _inputDecoration({
     required String label,

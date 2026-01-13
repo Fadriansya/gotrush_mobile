@@ -1,4 +1,3 @@
-// chat_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -10,7 +9,7 @@ import '../models/chat_message_model.dart';
 class ChatScreen extends StatefulWidget {
   final String orderId;
   final String otherUserName;
-  final String currentUserRole; // 'user' | 'driver'
+  final String currentUserRole;
 
   const ChatScreen({
     super.key,
@@ -116,7 +115,6 @@ class _ChatScreenState extends State<ChatScreen> {
                     )
                     .toList();
 
-                // Mark messages as read
                 for (var msg in messages) {
                   if (msg.senderRole != widget.currentUserRole &&
                       msg.readAt == null) {

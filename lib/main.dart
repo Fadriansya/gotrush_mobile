@@ -1,4 +1,3 @@
-// main.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
@@ -18,7 +17,6 @@ import 'package:intl/date_symbol_data_local.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Init Intl locale early
   try {
     await initializeDateFormatting('id_ID', null);
     Intl.defaultLocale = 'id_ID';
@@ -26,10 +24,8 @@ void main() async {
     print("Error initializing locale: $e");
   }
 
-  // Init Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // APP CHECK — MODE PALING STABIL
   await FirebaseAppCheck.instance.activate(
     androidProvider: AndroidProvider.playIntegrity,
     appleProvider: AppleProvider.deviceCheck,
