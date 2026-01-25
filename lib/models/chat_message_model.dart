@@ -1,17 +1,16 @@
-// chat_message_model.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class ChatMessage {
   final String id;
   final String orderId;
   final String senderId;
-  final String senderRole; // 'user' | 'driver'
+  final String senderRole;
   final String message;
 
   final Timestamp createdAt;
-  final Timestamp? readAt; // null = belum dibaca
+  final Timestamp? readAt;
 
-  final String type; // 'text' | 'image' | 'system'
+  final String type;
 
   ChatMessage({
     required this.id,
