@@ -57,20 +57,17 @@ Fokus implementasi saat ini: performa, UX notifikasi, dan menghindari pembacaan 
 Berikut adalah koleksi/kunci penting dan contoh fields (konvensi saat ini):
 
 - `users/{uid}`:
-
   - name: string
   - email: string
   - phone: string
   - role: 'user' | 'driver'
 
 - `drivers/{driverId}`:
-
   - location: GeoPoint
   - updatedAt: timestamp
   - status: string (online/offline)
 
 - `orders/{orderId}`:
-
   - user_id, driver_id (nullable until accepted)
   - address, location (GeoPoint), weight, price
   - status: 'waiting' | 'accepted' | 'on_the_way' | 'arrived' | 'completed' | 'archived'
@@ -101,7 +98,6 @@ flutter pub get
 ```
 
 3. Firebase configuration:
-
    - Android: letakkan `google-services.json` di `android/app/`.
    - iOS: letakkan `GoogleService-Info.plist` di `ios/Runner/`.
    - Web: konfigurasikan `firebase_options.dart` (project sudah menyertakan file dasar `lib/firebase_options.dart`).
@@ -246,7 +242,7 @@ Catatan: saat ini hanya order baru yang di-archive yang otomatis menambahkan `us
 
 ## Kontak / Lisensi
 
-- [`Nasrullah Akbar`](https://github.com/Fadriansya)
+- [`Nasrullah Akbar`](https://github.com/Nasrullah-Akbar-Fadriansyah)
 - [`Yudi Alfarizi`](https://github.com/Yudi-Alfarizi)
 - [`Achmad Syahrudin`](https://github.com/achmadsyahrdn)
 - [`Aditya April Riandi`](https://github.com/aditya100402)
