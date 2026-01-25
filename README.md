@@ -242,7 +242,7 @@ Catatan: saat ini hanya order baru yang di-archive yang otomatis menambahkan `us
 
 ## Kontak / Lisensi
 
-- [`Nasrullah Akbar`](https://github.com/Nasrullah-Akbar-Fadriansyah)
+- [`Nasrullah Akbar Fadriansyah`](https://github.com/Nasrullah-Akbar-Fadriansyah)
 - [`Yudi Alfarizi`](https://github.com/Yudi-Alfarizi)
 - [`Achmad Syahrudin`](https://github.com/achmadsyahrdn)
 - [`Aditya April Riandi`](https://github.com/aditya100402)
